@@ -372,14 +372,17 @@ async def run(cfg=None):
                 except: pass
                 finally: await p2.close()
 
-        need_details = [l for l in listings if not l.title or (len(l.title) <= 18 and not _has_number(l.title))]
-        if need_details:
-            limit = min(len(need_details), cfg.max_detail_pages if cfg.scrape_details else 5)
-            await asyncio.gather(*[_detail(l) for l in need_details[:limit]])
+        # Tentukan listing mana yang perlu detail scraping
+        if cfg.scrape_details:
+            # Mode --details: ambil semua listing sampai max_detail_pages
+            to_detail = listings[:min(len(listings), cfg.max_detail_pages)]
+        else:
+            # Mode normal: hanya listing yang judulnya pendek/kosong (fallback)
+            to_detail = [l for l in listings if not l.title or (len(l.title) <= 18 and not _has_number(l.title))]
+            to_detail = to_detail[:5]  # max 5 fallback detail pages
 
-        if cfg.scrape_details and listings:
-            limit = min(len(listings), cfg.max_detail_pages)
-            await asyncio.gather(*[_detail(l) for l in listings[:limit]])
+        if to_detail:
+            await asyncio.gather(*[_detail(l) for l in to_detail])
 
         for l in listings: store.add(l)
 

@@ -68,7 +68,7 @@ export default function SearchPage() {
     setScrapeStatus('Memulai scraping...');
 
     try {
-      await scraperApi.start({ query: q, count: 30 });
+      await scraperApi.start({ query: q, count: 30, details: false });
 
       // Poll status
       const poll = setInterval(async () => {
