@@ -1,0 +1,249 @@
+.page {
+  padding: var(--space-8);
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.header {
+  margin-bottom: var(--space-8);
+}
+
+.header h1 {
+  font-size: 1.75rem;
+  margin-bottom: var(--space-2);
+}
+
+.header p {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+/* ── Section ─────────────────────────────────────────────── */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.sectionTitle {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sectionDesc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: calc(-1 * var(--space-2));
+}
+
+/* ── Auth Card ───────────────────────────────────────────── */
+.authCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.authStatus {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.statusDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.statusDotGreen {
+  background: var(--color-success);
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
+}
+
+.statusDotRed {
+  background: var(--color-danger);
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
+}
+
+.statusText {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.loginStateMsg {
+  font-size: 13px;
+  color: var(--accent-tertiary);
+  padding: var(--space-2) var(--space-3);
+  background: rgba(99,102,241,0.08);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(99,102,241,0.12);
+}
+
+.errorMsg {
+  color: var(--color-danger);
+  font-size: 13px;
+  background: rgba(239,68,68,0.08);
+  border: 1px solid rgba(239,68,68,0.15);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+}
+
+.authActions {}
+
+.authNote {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  line-height: 1.6;
+}
+
+/* ── Test Card ───────────────────────────────────────────── */
+.testCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.testRow {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.testStatus {
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.testNote {
+  font-size: 12px;
+  color: var(--color-warning);
+}
+
+/* ── Add Term Form ────────────────────────────────────────── */
+.addTermForm {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+}
+
+/* ── Terms Filter ─────────────────────────────────────────── */
+.termsFilter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.termsCount {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.categoryFilters {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+/* ── Terms Grid ───────────────────────────────────────────── */
+.termsGrid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.termItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.termItem:hover {
+  border-color: var(--border-normal);
+  background: var(--bg-card-hover);
+}
+
+.termInactive {
+  opacity: 0.45;
+}
+
+.termMain {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+}
+
+.termWord {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-tertiary);
+  background: rgba(99,102,241,0.08);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.termMeaning {
+  font-size: 13px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.termActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}

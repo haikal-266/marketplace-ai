@@ -1,0 +1,142 @@
+// This is your Prisma schema file.
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Listing dari Facebook Marketplace setelah melalui pipeline
+model Listing {
+  id                    String   @id @default(uuid())
+
+  // ─── Data Asli dari Scraper ───────────────────────────────────────────────
+  title                 String?  /// Title dari listing
+  description           String?  /// Deskripsi lengkap dari detail page
+  listedPrice           String?  @map("listed_price")     /// Harga yang tertera di Marketplace (bisa palsu)
+  location              String?  /// Kota/wilayah
+  seller                String?  /// Nama penjual
+  sellerUrl             String?  @map("seller_url")       /// URL profil penjual
+  condition             String?  /// Kondisi barang: Bekas - Baik, dll
+  delivery              String?  /// Metode pengiriman
+  url                   String   @unique                  /// URL listing Facebook (unique key)
+  imageUrl              String?  @map("image_url")        /// URL gambar thumbnail
+  postedAt              String?  @map("posted_at")        /// Waktu posting (raw string dari scraper)
+  scrapedAt             DateTime @default(now()) @map("scraped_at")
+
+  // ─── Hasil Analisis Pipeline ─────────────────────────────────────────────
+  actualPriceAmount     Int?     @map("actual_price_amount")   /// Harga sebenarnya dalam Rupiah (hasil deteksi)
+  actualPriceRaw        String?  @map("actual_price_raw")      /// Teks harga asli yang terdeteksi ("15 juta", "Rp 15.000.000")
+  actualPriceSource     String?  @map("actual_price_source")   /// Sumber: "listed" | "title" | "description"
+  isPriceFake           Boolean  @default(false) @map("is_price_fake")  /// Apakah listed_price palsu/placeholder
+  isBarter              Boolean  @default(false) @map("is_barter")      /// Apakah ada istilah barter (BT)
+  isTradeIn             Boolean  @default(false) @map("is_trade_in")    /// Apakah ada tukar tambah (TT)
+  isNett                Boolean  @default(false) @map("is_nett")        /// Apakah harga nett (tidak bisa ditawar)
+
+  /// JSON array istilah marketplace yang terdeteksi, contoh:
+  /// [{"term": "BU", "meaning": "Butuh Uang", "category": "urgency"}]
+  detectedKeywords      Json?    @map("detected_keywords")
+
+  /// Skor kepercayaan hasil analisis (0.0 - 1.0)
+  confidenceScore       Float    @default(0) @map("confidence_score")
+
+  // ─── Search Index Fields ──────────────────────────────────────────────────
+  searchVector          Unsupported("tsvector")? @map("search_vector")
+  /// Title yang sudah dinormalisasi (lowercase, trim, dll) untuk search
+  normalizedTitle       String?  @map("normalized_title")
+  /// Description yang sudah dinormalisasi untuk search
+  normalizedDescription String?  @map("normalized_description")
+
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@map("listings")
+  @@index([location])
+  @@index([scrapedAt])
+  @@index([actualPriceAmount])
+  @@index([isPriceFake])
+  @@index([confidenceScore])
+}
+
+/// Kamus istilah marketplace Indonesia
+/// Mudah dikembangkan: tambah term baru via UI atau seed file
+model DictionaryTerm {
+  id        String   @id @default(uuid())
+
+  /// Istilah yang dicari dalam teks (case-insensitive), contoh: "BU", "TT", "Nett"
+  term      String   @unique
+
+  /// Arti/penjelasan istilah, contoh: "Butuh Uang (jual cepat)"
+  meaning   String
+
+  /// Kategori istilah untuk grouping dan filtering
+  /// Nilai: "pricing" | "condition" | "trade" | "urgency" | "delivery" | "warranty" | "other"
+  category  String
+
+  /// Apakah istilah ini aktif digunakan dalam analisis
+  isActive  Boolean  @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("dictionary_terms")
+  @@index([category])
+  @@index([isActive])
+}
+
+/// Sinonim dan singkatan nama produk
+/// Digunakan untuk smart keyword matching (MBA → MacBook Air, IP15PM → iPhone 15 Pro Max)
+model ProductSynonym {
+  id            String   @id @default(uuid())
+
+  /// Nama standar/canonical produk, contoh: "MacBook Air"
+  canonicalName String   @map("canonical_name")
+
+  /// JSON array alias/singkatan, contoh: ["MBA", "Macbook Air", "MBAir"]
+  aliases       Json
+
+  /// Kategori produk, contoh: "laptop" | "phone" | "gaming" | "other"
+  category      String?
+
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("product_synonyms")
+  @@index([canonicalName])
+  @@index([category])
+}
+
+/// Pengaturan aplikasi — termasuk cookies terenkripsi
+model AppSetting {
+  /// Key unik pengaturan, contoh: "fb_cookies", "default_city"
+  key       String   @id
+
+  /// Nilai pengaturan — jika type = "encrypted", value sudah di-encrypt AES-256-GCM
+  value     String
+
+  /// Tipe nilai: "plain" | "encrypted"
+  type      String   @default("plain")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("app_settings")
+}
+
+/// Riwayat pencarian untuk analytics sederhana
+model SearchHistory {
+  id          String   @id @default(uuid())
+  query       String
+  resultCount Int      @default(0) @map("result_count")
+
+  /// JSON filter yang dipakai saat pencarian
+  filters     Json?
+
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("search_history")
+}

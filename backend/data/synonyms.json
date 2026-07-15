@@ -1,0 +1,82 @@
+[
+  {
+    "canonicalName": "MacBook Air",
+    "aliases": ["MBA", "Macbook Air", "MBAir", "Mac Air", "Macbook Eir", "Macbook Aaer"],
+    "category": "laptop"
+  },
+  {
+    "canonicalName": "MacBook Pro",
+    "aliases": ["MBP", "Macbook Pro", "MBPro", "Mac Pro", "Macbook Proo"],
+    "category": "laptop"
+  },
+  {
+    "canonicalName": "iPhone 15 Pro Max",
+    "aliases": ["IP 15PM", "IP15PM", "iPhone 15PM", "IP15 Pro Max", "Ip 15 Promax", "iPhone 15 Promax", "i15pm", "15pm"],
+    "category": "phone"
+  },
+  {
+    "canonicalName": "iPhone 15 Pro",
+    "aliases": ["IP 15P", "IP15P", "iPhone 15P", "IP15 Pro", "Ip 15pro", "i15p"],
+    "category": "phone"
+  },
+  {
+    "canonicalName": "iPhone 15",
+    "aliases": ["IP 15", "IP15", "iPhone15", "i15"],
+    "category": "phone"
+  },
+  {
+    "canonicalName": "iPhone 14 Pro Max",
+    "aliases": ["IP 14PM", "IP14PM", "iPhone 14PM", "14pm", "i14pm"],
+    "category": "phone"
+  },
+  {
+    "canonicalName": "iPhone 14 Pro",
+    "aliases": ["IP 14P", "IP14P", "i14p"],
+    "category": "phone"
+  },
+  {
+    "canonicalName": "Samsung Galaxy S25 Ultra",
+    "aliases": ["S25U", "S25 Ultra", "Galaxy S25U", "Samsung S25 Ultra"],
+    "category": "phone"
+  },
+  {
+    "canonicalName": "Samsung Galaxy S25",
+    "aliases": ["S25", "Galaxy S25", "Samsung S25"],
+    "category": "phone"
+  },
+  {
+    "canonicalName": "PlayStation 5",
+    "aliases": ["PS5", "Play Station 5", "Playstation5", "PS 5"],
+    "category": "gaming"
+  },
+  {
+    "canonicalName": "PlayStation 4",
+    "aliases": ["PS4", "Play Station 4", "Playstation4", "PS 4"],
+    "category": "gaming"
+  },
+  {
+    "canonicalName": "Nintendo Switch",
+    "aliases": ["Switch", "NSW", "NS", "Nintendo SW"],
+    "category": "gaming"
+  },
+  {
+    "canonicalName": "RTX 4090",
+    "aliases": ["4090", "RTX4090", "GeForce 4090"],
+    "category": "pc"
+  },
+  {
+    "canonicalName": "RTX 4080",
+    "aliases": ["4080", "RTX4080", "GeForce 4080"],
+    "category": "pc"
+  },
+  {
+    "canonicalName": "iPad Pro",
+    "aliases": ["IPad Pro", "Ipad Pro", "iPad Proo"],
+    "category": "tablet"
+  },
+  {
+    "canonicalName": "iPad Air",
+    "aliases": ["IPad Air", "Ipad Air"],
+    "category": "tablet"
+  }
+]

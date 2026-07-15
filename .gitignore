@@ -1,0 +1,30 @@
+.env
+.env.local
+node_modules/
+dist/
+build/
+*.log
+coverage/
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Scraper reference (tidak perlu di-commit)
+_scraper_ref/
+
+# Cookie temp files (SANGAT PENTING — jangan sampai masuk repo)
+*.cookies.json
+fb_cookies_*.json
+
+# Database
+*.sqlite
+*.db
+
+# Playwright browsers
+/playwright-browsers/
