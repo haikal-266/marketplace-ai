@@ -13,6 +13,7 @@ class Listing:
     url: str = ""
     image_url: str = ""
     seller: str = ""
+    seller_url: str = ""
     posted: str = ""
     condition: str = ""
     delivery: str = ""
@@ -27,6 +28,7 @@ class Listing:
             "url": self.url,
             "image_url": self.image_url,
             "seller": self.seller,
+            "seller_url": self.seller_url,
             "posted": self.posted,
             "condition": self.condition,
             "delivery": self.delivery,

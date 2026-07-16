@@ -11,6 +11,7 @@ export interface RawListing {
   url: string;
   image_url: string;
   seller: string;
+  seller_url: string;
   posted: string;
   condition: string;
   delivery: string;

@@ -4,6 +4,7 @@ import styles from './ListingCard.module.css';
 interface Props {
   listing: Listing;
   searchQuery?: string;
+  onClick?: () => void;
 }
 
 /** Format Rupiah dengan singkatan juta/ribu */
@@ -36,11 +37,11 @@ const CATEGORY_ICONS: Record<string, string> = {
   urgency: '⚡', delivery: '🚚', warranty: '🛡️', other: '📌',
 };
 
-export default function ListingCard({ listing, searchQuery = '' }: Props) {
+export default function ListingCard({ listing, searchQuery = '', onClick }: Props) {
   const {
-    title, description, actualPriceAmount, actualPriceRaw,
+    title, description, actualPriceAmount,
     listedPrice, isPriceFake, isBarter, isTradeIn, isNett,
-    location, seller, condition, imageUrl, url,
+    location, seller, condition, imageUrl,
     postedAt, detectedKeywords, confidenceScore,
   } = listing;
 
@@ -49,9 +50,9 @@ export default function ListingCard({ listing, searchQuery = '' }: Props) {
   const hasActualPrice = actualPriceAmount !== null && actualPriceAmount !== undefined;
 
   return (
-    <article className={styles.card}>
+    <article className={styles.card} onClick={onClick}>
       {/* ── Thumbnail ─────────────────────────────────────── */}
-      <a href={url} target="_blank" rel="noopener noreferrer" className={styles.imageLink}>
+      <div className={styles.imageLink}>
         {imageUrl ? (
           <img
             src={imageUrl}
@@ -69,16 +70,16 @@ export default function ListingCard({ listing, searchQuery = '' }: Props) {
         <div className={styles.confidenceBadge} title={`Confidence score: ${Math.round(confidenceScore * 100)}%`}>
           {Math.round(confidenceScore * 100)}%
         </div>
-      </a>
+      </div>
 
       {/* ── Content ───────────────────────────────────────── */}
       <div className={styles.content}>
         {/* Title */}
-        <a href={url} target="_blank" rel="noopener noreferrer" className={styles.titleLink}>
+        <div className={styles.titleContainer}>
           <h3 className={styles.title}>
             {highlightText(displayTitle, searchQuery)}
           </h3>
-        </a>
+        </div>
 
         {/* Description preview */}
         {description && (
@@ -94,20 +95,16 @@ export default function ListingCard({ listing, searchQuery = '' }: Props) {
               <span className={styles.actualPriceValue}>
                 {formatPrice(actualPriceAmount!)}
               </span>
-              {actualPriceRaw && actualPriceRaw !== `Rp ${actualPriceAmount?.toLocaleString('id-ID')}` && (
-                <span className={styles.priceSource}>dari "{actualPriceRaw}"</span>
+              {/* Tampilkan listed price hanya jika berbeda dari actual (harga clickbait) */}
+              {listedPrice && isPriceFake && (
+                <span className={styles.priceSource}>Listed: {listedPrice}</span>
               )}
             </div>
-          ) : null}
-
-          {/* Listed price (jika palsu, tampilkan dengan strikethrough) */}
-          {listedPrice && (
-            <div className={isPriceFake ? styles.fakePrice : styles.listedPrice}>
-              {isPriceFake && <span className={styles.fakeBadge}>🚫</span>}
+          ) : listedPrice ? (
+            <div className={styles.listedPrice}>
               <span>{listedPrice}</span>
-              {isPriceFake && <span className={styles.fakeLabel}>palsu</span>}
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* Flags badges */}
@@ -115,7 +112,6 @@ export default function ListingCard({ listing, searchQuery = '' }: Props) {
           {isBarter && <span className="badge badge-warning">🔄 Barter</span>}
           {isTradeIn && <span className="badge badge-accent">↔️ TT</span>}
           {isNett && <span className="badge badge-muted">🔒 Nett</span>}
-          {isPriceFake && <span className="badge badge-danger">⚠️ Harga Palsu</span>}
         </div>
 
         {/* Detected keywords */}

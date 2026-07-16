@@ -55,11 +55,16 @@ app.use((_req, res) => {
 // Error handler (HARUS di akhir)
 app.use(errorHandler);
 
+import { startCleanupScheduler } from './utils/cleanup.service';
+
 // ─── Start Server ─────────────────────────────────────────────────────────────
 app.listen(config.port, () => {
   log.info(`Server berjalan di http://localhost:${config.port}`);
   log.info(`Environment: ${config.nodeEnv}`);
   log.info(`Frontend URL: ${config.frontendUrl}`);
+  
+  // Jalankan scheduler pembersihan listing lama (> 24 jam)
+  startCleanupScheduler();
 });
 
 export default app;

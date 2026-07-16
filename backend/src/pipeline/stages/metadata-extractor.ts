@@ -35,7 +35,7 @@ export class MetadataExtractorStage
       listedPrice: input.listedPriceStr,
       location: input.location,
       seller: input.seller,
-      sellerUrl: '',          // scraper tidak mengisi seller_url saat ini
+      sellerUrl: input.seller_url || '',
       condition: input.condition,
       delivery: input.delivery,
       url: input.url,

@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { searchApi, scraperApi } from '../services/api';
-import type { SearchResult, SearchOptions } from '../types';
+import type { SearchResult, SearchOptions, Listing } from '../types';
 import ListingCard from '../components/ListingCard/ListingCard';
 import styles from './SearchPage.module.css';
 
@@ -12,6 +12,11 @@ const SORT_OPTIONS = [
   { value: 'confidence', label: '🎯 Kepercayaan' },
 ];
 
+const CATEGORY_ICONS: Record<string, string> = {
+  pricing: '💰', condition: '📦', trade: '🔄',
+  urgency: '⚡', delivery: '🚚', warranty: '🛡️', other: '📌',
+};
+
 export default function SearchPage() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult | null>(null);
@@ -19,11 +24,11 @@ export default function SearchPage() {
   const [error, setError] = useState<string | null>(null);
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [scrapeStatus, setScrapeStatus] = useState<string | null>(null);
+  const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   // Filters
   const [sortBy, setSortBy] = useState<SearchOptions['sortBy']>('relevance');
-  const [excludeFakePrice, setExcludeFakePrice] = useState(false);
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
   const [location, setLocation] = useState('');
@@ -63,7 +68,7 @@ export default function SearchPage() {
         sortBy,
         page: 1,
         limit: 100, // Show more initially since we won't have pagination easily with stream
-        excludeFakePrice: excludeFakePrice || undefined,
+        excludeFakePrice: undefined,
         location: location || undefined,
         minPrice: minPrice ? Number.parseInt(minPrice, 10) : undefined,
         maxPrice: maxPrice ? Number.parseInt(maxPrice, 10) : undefined,
@@ -80,7 +85,7 @@ export default function SearchPage() {
     // 2. Mulai scraper
     setScrapeStatus('Memulai live scraping...');
     try {
-      await scraperApi.start({ query: q, count: 100, details: false, city: location });
+      await scraperApi.start({ query: q, count: 100, details: true, city: location });
     } catch (err) {
       setScrapeStatus(`❌ ${err instanceof Error ? err.message : 'Gagal memulai scraper'}`);
       setIsMonitoring(false);
@@ -111,7 +116,6 @@ export default function SearchPage() {
       // Filter the incoming listing dynamically to see if it matches UI filters
       // (The backend pipeline already checks dictionary, but UI filters like price/location are applied here)
       let pass = true;
-      if (excludeFakePrice && newListing.isPriceFake) pass = false;
       const actPrice = newListing.actualPriceAmount;
       if (minPrice && (actPrice === null || actPrice === undefined || actPrice < Number.parseInt(minPrice, 10))) pass = false;
       if (maxPrice && (actPrice === null || actPrice === undefined || actPrice > Number.parseInt(maxPrice, 10))) pass = false;
@@ -129,8 +133,16 @@ export default function SearchPage() {
               synonymsExpanded: [],
             };
           }
-          // Avoid duplicate display
-          if (prev.items.find((i) => i.id === newListing.id)) return prev;
+          // Avoid duplicate display (if it exists, replace it with the new/updated one)
+          const index = prev.items.findIndex((i) => i.id === newListing.id);
+          if (index !== -1) {
+            const updatedItems = [...prev.items];
+            updatedItems[index] = newListing;
+            return {
+              ...prev,
+              items: updatedItems,
+            };
+          }
           return {
             ...prev,
             total: prev.total + 1,
@@ -146,7 +158,7 @@ export default function SearchPage() {
       sse.close();
     };
 
-  }, [query, sortBy, excludeFakePrice, location, minPrice, maxPrice, isBarter, isMonitoring, stopMonitoring]);
+  }, [query, sortBy, location, minPrice, maxPrice, isBarter, isMonitoring, stopMonitoring]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') startMonitoring();
@@ -241,26 +253,16 @@ export default function SearchPage() {
           <label className={styles.filterToggle}>
             <input
               type="checkbox"
-              checked={excludeFakePrice}
-              onChange={(e) => setExcludeFakePrice(e.target.checked)}
-            />
-            <span>Sembunyikan harga palsu</span>
-          </label>
-
-          <label className={styles.filterToggle}>
-            <input
-              type="checkbox"
               checked={isBarter === true}
               onChange={(e) => setIsBarter(e.target.checked ? true : undefined)}
             />
             <span>Barter only</span>
           </label>
 
-          {(excludeFakePrice || minPrice || maxPrice || location || isBarter) && (
+          {(minPrice || maxPrice || location || isBarter) && (
             <button
               className="btn btn-ghost btn-sm"
               onClick={() => {
-                setExcludeFakePrice(false);
                 setMinPrice('');
                 setMaxPrice('');
                 setLocation('');
@@ -332,8 +334,8 @@ export default function SearchPage() {
             <p>Ketik keyword dan tekan Enter atau klik Cari.</p>
             <div className={styles.tips}>
               <div className={styles.tip}>💡 Cari "MBA M2" untuk menemukan "MacBook Air M2"</div>
-              <div className={styles.tip}>💡 Listing dengan harga palsu (Rp 1, Rp 123) tetap ditampilkan</div>
-              <div className={styles.tip}>💡 Aktifkan "Sembunyikan harga palsu" untuk filter heuristik</div>
+              <div className={styles.tip}>💡 Harga terdeteksi otomatis dari judul & deskripsi jika seller memasang harga clickbait</div>
+              <div className={styles.tip}>💡 Aktifkan "Barter only" untuk filter listing yang menawarkan tukar barang</div>
             </div>
           </div>
         )}
@@ -343,13 +345,146 @@ export default function SearchPage() {
           <>
             <div className={styles.grid}>
               {results.items.map((listing) => (
-                <ListingCard key={listing.id} listing={listing} searchQuery={query} />
+                <ListingCard
+                  key={listing.id}
+                  listing={listing}
+                  searchQuery={query}
+                  onClick={() => setSelectedListing(listing)}
+                />
               ))}
             </div>
-
           </>
         )}
       </div>
+
+      {/* ── Detail Modal ────────────────────────────────────── */}
+      {selectedListing && (
+        <div className={styles.modalOverlay} onClick={() => setSelectedListing(null)}>
+          <div className={styles.modalContainer} onClick={(e) => e.stopPropagation()}>
+            <button className={styles.modalCloseBtn} onClick={() => setSelectedListing(null)}>
+              ✕
+            </button>
+            <div className={styles.modalBody}>
+              {/* Image section */}
+              <div className={styles.modalImageSection}>
+                {selectedListing.imageUrl ? (
+                  <img
+                    src={selectedListing.imageUrl}
+                    alt={selectedListing.title || '(Tanpa judul)'}
+                    className={styles.modalImage}
+                  />
+                ) : (
+                  <div className={styles.modalImagePlaceholder}>🖼️</div>
+                )}
+                <div className={styles.modalConfidenceBadge}>
+                  Confidence: {Math.round(selectedListing.confidenceScore * 100)}%
+                </div>
+              </div>
+
+              {/* Content section */}
+              <div className={styles.modalContentSection}>
+                <h2 className={styles.modalTitle}>{selectedListing.title || '(Tanpa judul)'}</h2>
+
+                {/* Price display */}
+                <div className={styles.modalPrices}>
+                  {selectedListing.actualPriceAmount !== null && (
+                    <div className={styles.modalActualPrice}>
+                      <span className={styles.modalActualPriceVal}>
+                        Rp {selectedListing.actualPriceAmount.toLocaleString('id-ID')}
+                      </span>
+                      {/* Tampilkan listed price sebagai info sekunder jika merupakan harga clickbait */}
+                      {selectedListing.isPriceFake && selectedListing.listedPrice && (
+                        <span className={styles.modalPriceRaw}>
+                          Listed Price: {selectedListing.listedPrice}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {/* Jika tidak ada actual price, tampilkan listed price langsung */}
+                  {selectedListing.actualPriceAmount === null && selectedListing.listedPrice && (
+                    <div className={styles.modalListedPrice}>
+                      Listed Price: {selectedListing.listedPrice}
+                    </div>
+                  )}
+                </div>
+
+                {/* Flags badges */}
+                <div className={styles.modalFlags}>
+                  {selectedListing.isBarter && <span className="badge badge-warning">🔄 Barter</span>}
+                  {selectedListing.isTradeIn && <span className="badge badge-accent">↔️ Tukar Tambah (TT)</span>}
+                  {selectedListing.isNett && <span className="badge badge-muted">🔒 Harga Nett</span>}
+                </div>
+
+                {/* Meta details */}
+                <div className={styles.modalMetaGrid}>
+                  <div className={styles.modalMetaItem}>
+                    <span className={styles.modalMetaLabel}>📍 Lokasi</span>
+                    <span className={styles.modalMetaValue}>{selectedListing.location || '-'}</span>
+                  </div>
+                  <div className={styles.modalMetaItem}>
+                    <span className={styles.modalMetaLabel}>📦 Kondisi</span>
+                    <span className={styles.modalMetaValue}>{selectedListing.condition || '-'}</span>
+                  </div>
+                  <div className={styles.modalMetaItem}>
+                    <span className={styles.modalMetaLabel}>👤 Penjual</span>
+                    <span className={styles.modalMetaValue}>
+                      {selectedListing.sellerUrl ? (
+                        <a href={selectedListing.sellerUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-tertiary)', textDecoration: 'underline' }}>
+                          {selectedListing.seller || 'Link Profil'}
+                        </a>
+                      ) : (
+                        selectedListing.seller || '-'
+                      )}
+                    </span>
+                  </div>
+                  <div className={styles.modalMetaItem}>
+                    <span className={styles.modalMetaLabel}>🕐 Diposting</span>
+                    <span className={styles.modalMetaValue}>{selectedListing.postedAt || '-'}</span>
+                  </div>
+                </div>
+
+                {/* Keywords */}
+                {selectedListing.detectedKeywords && selectedListing.detectedKeywords.length > 0 && (
+                  <div className={styles.modalKeywordsSection}>
+                    <span className={styles.modalKeywordsTitle}>🔑 Istilah Terdeteksi</span>
+                    <div className={styles.modalKeywords}>
+                      {selectedListing.detectedKeywords.map((kw, i) => (
+                        <span key={i} className="tag-pill" title={kw.meaning}>
+                          {CATEGORY_ICONS[kw.category] ?? '📌'} <strong>{kw.term}</strong>: {kw.meaning}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Description */}
+                <div className={styles.modalDescriptionSection}>
+                  <span className={styles.modalDescTitle}>📝 Deskripsi Lengkap</span>
+                  <div className={styles.modalDescText}>
+                    {selectedListing.description || '(Tidak ada deskripsi dari penjual)'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer with Marketplace redirect action */}
+            <div className={styles.modalFooter}>
+              <button className="btn btn-ghost" onClick={() => setSelectedListing(null)}>
+                Tutup
+              </button>
+              <a
+                href={selectedListing.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn-primary"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+              >
+                🌐 Buka di Facebook Marketplace
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

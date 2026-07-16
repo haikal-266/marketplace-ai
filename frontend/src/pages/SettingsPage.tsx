@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { authApi, scraperApi, dictionaryApi } from '../services/api';
+import { authApi, scraperApi, dictionaryApi, listingsApi } from '../services/api';
 import type { AuthStatus, DictionaryTerm } from '../types';
 import styles from './SettingsPage.module.css';
 
@@ -123,6 +123,16 @@ export default function SettingsPage() {
       await dictionaryApi.delete(term.id);
       await fetchTerms();
     } catch { /* ignore */ }
+  };
+
+  const handleDeleteAllListings = async () => {
+    if (!confirm('Hapus semua data listing yang tersimpan di database? Tindakan ini tidak bisa dibatalkan.')) return;
+    try {
+      await listingsApi.deleteAll();
+      alert('Semua data listing berhasil dihapus.');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Gagal menghapus data.');
+    }
   };
 
   // ── Test Scrape ──────────────────────────────────────────────────────────
@@ -257,6 +267,25 @@ export default function SettingsPage() {
             {!authStatus?.isConnected && (
               <div className={styles.testNote}>⚠️ Login Facebook terlebih dahulu untuk test scraping.</div>
             )}
+          </div>
+        </section>
+
+        {/* ── Kelola Data ────────────────────────────────────────── */}
+        <section className={styles.section}>
+          <h2 className={styles.sectionTitle}>🗄️ Kelola Data</h2>
+          <div className={styles.testCard} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+            <p className={styles.sectionDesc} style={{ margin: 0, color: 'var(--text-secondary)' }}>
+              Hapus seluruh data hasil penyerapan (listings) yang disimpan di database PostgreSQL Anda untuk memulai ulang scraping bersih.
+            </p>
+            <div style={{ marginTop: 'var(--space-2)' }}>
+              <button
+                className="btn btn-danger"
+                onClick={handleDeleteAllListings}
+                id="btn-clear-listings"
+              >
+                🗑️ Hapus Semua Hasil Scraping
+              </button>
+            </div>
           </div>
         </section>
 

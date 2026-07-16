@@ -48,12 +48,19 @@ export class DictionaryAnalyzerStage
     const fullText = `${input.normalizedTitle} ${input.normalizedDescription}`;
     const matches = this.findMatches(fullText);
 
+    // ── Hardcoded keyword detection sebagai fallback ────────────────────────
+    // Deteksi langsung dari teks tanpa bergantung pada isian database kamus.
+    // Penting: barter/TT/BT sering hanya disebut di description, bukan title.
+    const isBarterHardcoded = /(?:^|\s)(bt|barter|tuker|tukar)(?:\s|$)/i.test(fullText);
+    const isTradeInHardcoded = /(?:^|\s)(tt|tukar\s*tambah|trade[\s-]?in)(?:\s|$)/i.test(fullText);
+    const isNettHardcoded = /(?:^|\s)(nett|net|pas|harga\s*pas|harga\s*fix|fix\s*price)(?:\s|$)/i.test(fullText);
+
     return {
       ...input,
       detectedKeywords: matches,
-      isBarter: this.hasCategory(matches, 'trade', ['BT', 'BARTER']),
-      isTradeIn: this.hasCategory(matches, 'trade', ['TT']),
-      isNett: this.hasCategory(matches, 'pricing', ['NETT', 'NET', 'PAS', 'SLAG']),
+      isBarter: isBarterHardcoded || this.hasCategory(matches, 'trade', ['BT', 'BARTER']),
+      isTradeIn: isTradeInHardcoded || this.hasCategory(matches, 'trade', ['TT']),
+      isNett: isNettHardcoded || this.hasCategory(matches, 'pricing', ['NETT', 'NET', 'PAS', 'SLAG']),
     };
   }
 

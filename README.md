@@ -31,7 +31,7 @@ Pastikan sudah terinstall:
 
 - [Node.js](https://nodejs.org/) v18+
 - [Python](https://python.org/) 3.10+
-- [PostgreSQL](https://www.postgresql.org/) 14+
+- [PostgreSQL](https://www.postgresql.org/) 14+ (Jika belum terinstall di Windows, Anda bisa menggunakan perintah `winget install PostgreSQL.PostgreSQL.16 --silent --override "--mode unattended --superpassword <password> --serverport 5432"` di terminal Administrator).
 
 ---
 
@@ -44,10 +44,14 @@ git clone https://github.com/haikal-266/marketplace-ai.git
 cd marketplace-ai
 ```
 
-### 2. Install Node.js dependencies
+### 2. Install Node.js dependencies & Playwright Browser
 
 ```bash
+# Install node packages
 npm install
+
+# Install Chromium browser untuk backend (untuk alur interaktif login Facebook)
+npx playwright install chromium
 ```
 
 ### 3. Setup Backend
@@ -67,7 +71,11 @@ NODE_ENV=development
 # Generate key: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 COOKIE_ENCRYPTION_KEY="isi_dengan_32_karakter_random"
 
-PYTHON_PATH="./scraper/venv/bin/python"
+# Catatan PYTHON_PATH:
+# - Windows: "./scraper/venv/Scripts/python.exe"
+# - Linux/Mac: "./scraper/venv/bin/python"
+PYTHON_PATH="./scraper/venv/Scripts/python.exe"
+
 SCRAPER_SCRIPT_PATH="./scraper/scraper.py"
 FRONTEND_URL="http://localhost:5173"
 ```
@@ -75,10 +83,10 @@ FRONTEND_URL="http://localhost:5173"
 ### 4. Setup Database
 
 ```bash
-# Jalankan migration
+# Jalankan migration (Masukkan nama migrasi seperti 'sync' jika diminta)
 npm run db:migrate
 
-# (Opsional) Isi data awal
+# (Opsional) Isi data awal kamus istilah & sinonim
 npm run db:seed
 ```
 
@@ -88,15 +96,16 @@ npm run db:seed
 cd scraper
 
 # Buat virtual environment
-python3 -m venv venv
-source venv/bin/activate        # Linux/Mac
-# venv\Scripts\activate         # Windows
+python -m venv venv
+# Aktifkan virtual environment
+# - Windows (PowerShell): venv\Scripts\activate
+# - Linux/Mac: source venv/bin/activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install python dependencies
+venv\Scripts\pip install -r requirements.txt
 
-# Install Playwright browser
-playwright install chromium
+# Install Playwright browser khusus python scraper
+venv\Scripts\playwright install chromium
 
 cd ..
 ```
