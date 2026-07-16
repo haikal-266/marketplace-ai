@@ -1,8 +1,13 @@
+/* ── Layout Shell ── */
 .layout {
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
   display: flex;
-  min-height: 100vh;
 }
 
+/* ── Sidebar (Desktop Only) ── */
 .sidebar {
   width: var(--sidebar-width);
   background: var(--bg-secondary);
@@ -14,45 +19,58 @@
   left: 0;
   height: 100vh;
   z-index: 100;
-  padding: var(--space-5);
+  padding: var(--space-6);
 }
 
 .logo {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding-bottom: var(--space-5);
+  padding-bottom: var(--space-6);
   border-bottom: 1px solid var(--border-subtle);
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-6);
 }
 
-.logoIcon {
-  font-size: 28px;
-  line-height: 1;
-  filter: drop-shadow(0 0 8px rgba(99,102,241,0.4));
+.logoIconContainer {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.logoBullet {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-primary);
+}
+
+.logoText {
+  display: flex;
+  flex-direction: column;
 }
 
 .logoTitle {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text-primary);
-  background: var(--accent-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  letter-spacing: -0.02em;
 }
 
 .logoSub {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-weight: 400;
-  margin-top: 1px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-weight: 500;
 }
 
 .nav {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
   flex: 1;
 }
 
@@ -60,10 +78,10 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   transition: all var(--transition-fast);
   text-decoration: none;
@@ -77,46 +95,118 @@
 }
 
 .navItemActive {
-  background: rgba(99, 102, 241, 0.12) !important;
-  color: var(--accent-tertiary) !important;
-  border-color: rgba(99, 102, 241, 0.2) !important;
+  background: rgba(55, 98, 200, 0.1) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--accent-primary) !important;
 }
 
 .navIcon {
-  font-size: 16px;
-  line-height: 1;
-  width: 20px;
-  text-align: center;
-  flex-shrink: 0;
+  color: var(--color-info);
+  transition: color var(--transition-fast);
+}
+
+.navItemActive .navIcon {
+  color: var(--text-primary);
 }
 
 .sidebarFooter {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding-top: var(--space-5);
+  padding-top: var(--space-4);
   border-top: 1px solid var(--border-subtle);
 }
 
 .versionTag {
-  font-size: 11px;
+  font-size: 10px;
   font-family: var(--font-mono);
   color: var(--text-muted);
   background: var(--bg-tertiary);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   padding: 2px 6px;
-  display: inline-block;
-  width: fit-content;
 }
 
-.footerNote {
+/* ── Bottom Navigation (Mobile Only) ── */
+.bottomNav {
+  display: none; /* Hidden by default, shown in media query */
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 64px;
+  background: var(--bg-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid var(--border-subtle);
+  z-index: 100;
+  flex-direction: row;
+  justify-content: space-around;
+  align-items: center;
+  padding: 0 var(--space-4);
+}
+
+.bottomNavItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+  text-decoration: none;
   font-size: 10px;
-  color: var(--text-disabled);
+  font-weight: 500;
+  transition: color var(--transition-fast);
+  padding: var(--space-2) var(--space-4);
 }
 
+.bottomNavIcon {
+  color: var(--color-info);
+}
+
+.bottomNavItemActive {
+  color: var(--text-primary) !important;
+}
+
+.bottomNavItemActive .bottomNavIcon {
+  color: var(--accent-primary) !important;
+}
+
+/* ── Main Area ── */
 .main {
   margin-left: var(--sidebar-width);
   flex: 1;
-  min-height: 100vh;
+  height: 100vh;
+  max-height: 100vh;
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Responsive media queries ── */
+@media (max-width: 768px) {
+  .layout {
+    height: auto;
+    min-height: 100vh;
+    overflow: auto;
+    display: block;
+  }
+
+  .sidebar {
+    display: none;
+  }
+  
+  .bottomNav {
+    display: flex;
+  }
+  
+  .main {
+    margin-left: 0;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    display: block;
+    padding-bottom: 80px; /* Space for bottom nav */
+    padding-top: var(--space-4);
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
 }

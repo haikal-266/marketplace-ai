@@ -71,6 +71,8 @@ export interface ScrapeOptions {
   count?: number;
   headless?: boolean;
   details?: boolean;
+  minPrice?: number;
+  maxPrice?: number;
 }
 
 export interface AuthStatus {

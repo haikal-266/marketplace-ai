@@ -1,21 +1,85 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import {
+  Search,
+  Activity,
+  SlidersHorizontal,
+  X,
+  MapPin,
+  Clock,
+  Package,
+  User,
+  ExternalLink,
+  ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  DollarSign,
+  Sparkles,
+  Check,
+  Play,
+  Square,
+  RefreshCw
+} from 'lucide-react';
 import { searchApi, scraperApi } from '../services/api';
 import type { SearchResult, SearchOptions, Listing } from '../types';
-import ListingCard from '../components/ListingCard/ListingCard';
+import ListingCard, { hasMinus } from '../components/ListingCard/ListingCard';
 import styles from './SearchPage.module.css';
 
 const SORT_OPTIONS = [
-  { value: 'relevance', label: '⭐ Relevansi' },
-  { value: 'newest', label: '🕐 Terbaru' },
-  { value: 'price_asc', label: '💸 Harga Naik' },
-  { value: 'price_desc', label: '💰 Harga Turun' },
-  { value: 'confidence', label: '🎯 Kepercayaan' },
+  { value: 'relevance', label: 'Relevansi' },
+  { value: 'newest', label: 'Terbaru' },
+  { value: 'price_asc', label: 'Harga Terendah' },
+  { value: 'price_desc', label: 'Harga Tertinggi' },
+  { value: 'confidence', label: 'Skor Kepercayaan' },
 ];
 
-const CATEGORY_ICONS: Record<string, string> = {
-  pricing: '💰', condition: '📦', trade: '🔄',
-  urgency: '⚡', delivery: '🚚', warranty: '🛡️', other: '📌',
+const CATEGORY_ICONS: Record<string, any> = {
+  pricing: DollarSign,
+  condition: Package,
+  trade: RefreshCw,
+  urgency: Sparkles,
+  delivery: ChevronRight,
+  warranty: Check,
+  other: Sparkles,
 };
+
+/** Helper to format input strings with Indonesian thousand separator */
+function formatInputPrice(value: string): string {
+  if (!value) return '';
+  const cleanValue = value.replace(/\D/g, '');
+  if (!cleanValue) return '';
+  const num = Number.parseInt(cleanValue, 10);
+  if (Number.isNaN(num)) return '';
+  return num.toLocaleString('id-ID');
+}
+
+/** Helper to format profiles / URLs to point to external Facebook Marketplace */
+function formatExternalUrl(url: string | null): string {
+  if (!url) return '#';
+  const cleanUrl = url.trim();
+  if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
+    return cleanUrl;
+  }
+  if (cleanUrl.startsWith('/')) {
+    return `https://www.facebook.com${cleanUrl}`;
+  }
+  return `https://www.facebook.com/${cleanUrl}`;
+}
+
+/** Helper to extract WhatsApp number and build direct wa.me link */
+function getWhatsAppLink(title: string | null, description: string | null): string | null {
+  const t = title || '';
+  const d = description || '';
+  const text = `${t} ${d}`;
+  const match = text.match(/08[0-9]{1,3}[-\s.]?[0-9]{3,4}[-\s.]?[0-9]{3,5}/g);
+  if (!match) return null;
+  for (const num of match) {
+    const cleanNum = num.replace(/[-\s.]/g, '');
+    if (cleanNum.length >= 10 && cleanNum.length <= 13) {
+      return `https://wa.me/62${cleanNum.substring(1)}`;
+    }
+  }
+  return null;
+}
 
 export default function SearchPage() {
   const [query, setQuery] = useState('');
@@ -25,6 +89,7 @@ export default function SearchPage() {
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [scrapeStatus, setScrapeStatus] = useState<string | null>(null);
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
+  const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   // Filters
@@ -33,19 +98,25 @@ export default function SearchPage() {
   const [maxPrice, setMaxPrice] = useState('');
   const [location, setLocation] = useState('');
   const [isBarter, setIsBarter] = useState<boolean | undefined>(undefined);
+  const [isOpenNego, setIsOpenNego] = useState<boolean | undefined>(undefined);
+  const [isNoMinus, setIsNoMinus] = useState<boolean | undefined>(undefined);
 
+  // Custom Select state
+  const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const stopMonitoring = useCallback(async () => {
     setIsMonitoring(false);
-    setScrapeStatus('Dihentikan.');
+    setScrapeStatus('Monitoring dihentikan.');
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
     try {
       await scraperApi.stop();
-    } catch (e) {}
+    } catch (e) { }
   }, []);
 
   const startMonitoring = useCallback(async () => {
@@ -59,7 +130,7 @@ export default function SearchPage() {
     setLoading(true);
     setError(null);
     setIsMonitoring(true);
-    setScrapeStatus('Mencari data lama...');
+    setScrapeStatus('Mencari database lokal...');
 
     // 1. Ambil data dari database dulu
     try {
@@ -67,7 +138,7 @@ export default function SearchPage() {
         q,
         sortBy,
         page: 1,
-        limit: 100, // Show more initially since we won't have pagination easily with stream
+        limit: 100,
         excludeFakePrice: undefined,
         location: location || undefined,
         minPrice: minPrice ? Number.parseInt(minPrice, 10) : undefined,
@@ -85,9 +156,16 @@ export default function SearchPage() {
     // 2. Mulai scraper
     setScrapeStatus('Memulai live scraping...');
     try {
-      await scraperApi.start({ query: q, count: 100, details: true, city: location });
+      await scraperApi.start({
+        query: q,
+        count: 100,
+        details: true,
+        city: location,
+        minPrice: minPrice ? Number.parseInt(minPrice, 10) : undefined,
+        maxPrice: maxPrice ? Number.parseInt(maxPrice, 10) : undefined
+      });
     } catch (err) {
-      setScrapeStatus(`❌ ${err instanceof Error ? err.message : 'Gagal memulai scraper'}`);
+      setScrapeStatus(`Gagal memulai scraper: ${err instanceof Error ? err.message : String(err)}`);
       setIsMonitoring(false);
       return;
     }
@@ -99,13 +177,13 @@ export default function SearchPage() {
     sse.addEventListener('status', (e) => {
       const data = JSON.parse(e.data);
       if (data.status === 'connected') {
-        setScrapeStatus('🟢 Live monitoring berjalan...');
+        setScrapeStatus('Live monitoring berjalan...');
       } else if (data.status === 'done') {
-        setScrapeStatus('✅ Scraper selesai.');
+        setScrapeStatus('Scraper selesai.');
         setIsMonitoring(false);
         sse.close();
       } else if (data.status === 'exhausted') {
-        setScrapeStatus('ℹ️ Semua produk telah habis diserap.');
+        setScrapeStatus('Semua produk telah habis diserap.');
         alert('Semua produk di Facebook Marketplace untuk pencarian ini sudah habis/terserap!');
         stopMonitoring();
       }
@@ -113,14 +191,13 @@ export default function SearchPage() {
 
     sse.addEventListener('listing', (e) => {
       const newListing = JSON.parse(e.data) as any;
-      // Filter the incoming listing dynamically to see if it matches UI filters
-      // (The backend pipeline already checks dictionary, but UI filters like price/location are applied here)
+
       let pass = true;
       const actPrice = newListing.actualPriceAmount;
       if (minPrice && (actPrice === null || actPrice === undefined || actPrice < Number.parseInt(minPrice, 10))) pass = false;
       if (maxPrice && (actPrice === null || actPrice === undefined || actPrice > Number.parseInt(maxPrice, 10))) pass = false;
       if (location && (!newListing.location || newListing.location.toLowerCase().indexOf(location.toLowerCase()) === -1)) pass = false;
-      
+
       if (pass) {
         setResults((prev) => {
           if (!prev) {
@@ -133,7 +210,6 @@ export default function SearchPage() {
               synonymsExpanded: [],
             };
           }
-          // Avoid duplicate display (if it exists, replace it with the new/updated one)
           const index = prev.items.findIndex((i) => i.id === newListing.id);
           if (index !== -1) {
             const updatedItems = [...prev.items];
@@ -153,7 +229,7 @@ export default function SearchPage() {
     });
 
     sse.onerror = () => {
-      setScrapeStatus('❌ Koneksi live terputus.');
+      setScrapeStatus('Koneksi live terputus.');
       setIsMonitoring(false);
       sse.close();
     };
@@ -164,209 +240,503 @@ export default function SearchPage() {
     if (e.key === 'Enter') startMonitoring();
   };
 
-  return (
-    <div className={styles.page}>
-      {/* ── Header ─────────────────────────────────────────── */}
-      <div className={styles.header}>
-        <div className={styles.headerContent}>
-          <h1 className={styles.title}>
-            <span className="gradient-text">Smart Search</span>
-          </h1>
-          <p className={styles.subtitle}>
-            Cari listing dengan AI — menembus title, deskripsi, dan harga tersembunyi
-          </p>
+  // Close filter drawer on resize to desktop & Close select dropdown on click outside
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 768) {
+        setIsFilterDrawerOpen(false);
+      }
+    };
+
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsSortDropdownOpen(false);
+      }
+    }
+
+    window.addEventListener('resize', handleResize);
+    document.addEventListener('mousedown', handleClickOutside);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Sideway wheel scrolling handler on product container
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY !== 0) {
+        e.preventDefault();
+        el.scrollLeft += e.deltaY;
+      }
+    };
+
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [results]);
+
+  // Local real-time filtering for display
+  const filteredItems = useMemo(() => {
+    if (!results) return [];
+    return results.items.filter((item) => {
+      // 1. Min Price Filter
+      if (minPrice) {
+        const min = Number.parseInt(minPrice, 10);
+        if (item.actualPriceAmount !== null && item.actualPriceAmount < min) return false;
+      }
+      // 2. Max Price Filter
+      if (maxPrice) {
+        const max = Number.parseInt(maxPrice, 10);
+        if (item.actualPriceAmount !== null && item.actualPriceAmount > max) return false;
+      }
+      // 3. Location Filter
+      if (location) {
+        if (!item.location || item.location.toLowerCase().indexOf(location.toLowerCase()) === -1) return false;
+      }
+      // 4. Barter / TradeIn Filter
+      if (isBarter) {
+        if (!item.isBarter && !item.isTradeIn) return false;
+      }
+      // 5. Open Nego Filter (Cari data yang flag nya tidak ada kata nett)
+      if (isOpenNego) {
+        if (item.isNett === true) return false;
+      }
+      // 6. No Minus Filter (Cari data yang tidak ada kerusakan/minus)
+      if (isNoMinus) {
+        if (hasMinus(item.title || '', item.description || '')) return false;
+      }
+      return true;
+    });
+  }, [results, minPrice, maxPrice, location, isBarter, isOpenNego, isNoMinus]);
+
+  const hasActiveFilters = minPrice || maxPrice || location || isBarter !== undefined || isOpenNego !== undefined || isNoMinus !== undefined || sortBy !== 'relevance';
+
+  const handleResetFilters = () => {
+    setMinPrice('');
+    setMaxPrice('');
+    setLocation('');
+    setIsBarter(undefined);
+    setIsOpenNego(undefined);
+    setIsNoMinus(undefined);
+    setSortBy('relevance');
+  };
+
+  const renderFiltersContent = () => (
+    <>
+      {/* Custom Dropdown Select */}
+      <div className={styles.filterGroup}>
+        <label className={styles.filterLabel}>Urutan</label>
+        <div className={styles.customSelectWrapper} ref={dropdownRef}>
+          <button
+            type="button"
+            className={styles.customSelectBtn}
+            onClick={() => setIsSortDropdownOpen((prev) => !prev)}
+          >
+            <span>{SORT_OPTIONS.find((o) => o.value === sortBy)?.label}</span>
+            {isSortDropdownOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+
+          {isSortDropdownOpen && (
+            <ul className={styles.customSelectDropdown}>
+              {SORT_OPTIONS.map((o) => (
+                <li
+                  key={o.value}
+                  className={`${styles.customSelectItem} ${sortBy === o.value ? styles.customSelectItemActive : ''}`}
+                  onClick={() => {
+                    setSortBy(o.value as SearchOptions['sortBy']);
+                    setIsSortDropdownOpen(false);
+                  }}
+                >
+                  {o.label}
+                  {sortBy === o.value && <Check size={14} className={styles.selectCheckIcon} />}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
 
-      {/* ── Search Bar ──────────────────────────────────────── */}
-      <div className={styles.searchSection}>
-        <div className={styles.searchBar}>
-          <span className={styles.searchIcon}>🔍</span>
+      {/* Min Price Custom Input */}
+      <div className={styles.filterGroup}>
+        <label className={styles.filterLabel}>Min Harga</label>
+        <div className={styles.customInputContainer}>
+          <span className={styles.inputPrefix}>Rp</span>
           <input
-            ref={searchInputRef}
-            id="search-input"
-            className={styles.searchInput}
+            className={styles.customInput}
             type="text"
-            placeholder="Cari MacBook M2, iPhone 15 Pro, PS5..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            autoFocus
+            placeholder="0"
+            value={formatInputPrice(minPrice)}
+            onChange={(e) => setMinPrice(e.target.value.replace(/\D/g, ''))}
           />
-          {query && (
-            <button
-              className={styles.clearBtn}
-              onClick={() => { setQuery(''); setResults(null); searchInputRef.current?.focus(); }}
-              title="Hapus"
-            >
-              ✕
-            </button>
-          )}
+        </div>
+      </div>
+
+      {/* Max Price Custom Input */}
+      <div className={styles.filterGroup}>
+        <label className={styles.filterLabel}>Max Harga</label>
+        <div className={styles.customInputContainer}>
+          <span className={styles.inputPrefix}>Rp</span>
+          <input
+            className={styles.customInput}
+            type="text"
+            placeholder="0"
+            value={formatInputPrice(maxPrice)}
+            onChange={(e) => setMaxPrice(e.target.value.replace(/\D/g, ''))}
+          />
+        </div>
+      </div>
+
+      {/* Location Custom Input */}
+      <div className={styles.filterGroup}>
+        <label className={styles.filterLabel}>Lokasi</label>
+        <div className={styles.customInputContainer}>
+          <MapPin size={14} className={styles.inputIconPrefix} />
+          <input
+            className={styles.customInput}
+            type="text"
+            placeholder="Semua Kota"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            style={{ paddingLeft: '32px' }}
+          />
+        </div>
+      </div>
+
+      {/* Custom Checkbox - Barter/TT */}
+      <div className={styles.filterGroup}>
+        <div
+          className={styles.customCheckboxContainer}
+          onClick={() => setIsBarter(isBarter === true ? undefined : true)}
+        >
+          <div className={`${styles.customCheckbox} ${isBarter === true ? styles.customCheckboxChecked : ''}`}>
+            {isBarter === true && <Check size={12} strokeWidth={3} className={styles.checkboxCheck} />}
+          </div>
+          <span className={styles.checkboxLabelText}>Khusus Tukar (BT / TT)</span>
+        </div>
+      </div>
+
+      {/* Custom Checkbox - Open Nego */}
+      <div className={styles.filterGroup}>
+        <div
+          className={styles.customCheckboxContainer}
+          onClick={() => setIsOpenNego(isOpenNego === true ? undefined : true)}
+        >
+          <div className={`${styles.customCheckbox} ${isOpenNego === true ? styles.customCheckboxChecked : ''}`}>
+            {isOpenNego === true && <Check size={12} strokeWidth={3} className={styles.checkboxCheck} />}
+          </div>
+          <span className={styles.checkboxLabelText}>Bisa Nego (Open Nego)</span>
+        </div>
+      </div>
+
+      {/* Custom Checkbox - No Minus */}
+      <div className={styles.filterGroup}>
+        <div
+          className={styles.customCheckboxContainer}
+          onClick={() => setIsNoMinus(isNoMinus === true ? undefined : true)}
+        >
+          <div className={`${styles.customCheckbox} ${isNoMinus === true ? styles.customCheckboxChecked : ''}`}>
+            {isNoMinus === true && <Check size={12} strokeWidth={3} className={styles.checkboxCheck} />}
+          </div>
+          <span className={styles.checkboxLabelText}>Tanpa Minus (No Minus)</span>
+        </div>
+      </div>
+
+      {hasActiveFilters && (
+        <button
+          className={styles.resetBtn}
+          onClick={handleResetFilters}
+        >
+          Reset Semua Filter
+        </button>
+      )}
+    </>
+  );
+
+  return (
+    <div className={styles.page}>
+      {/* ── Header ── */}
+      <header className={styles.header}>
+        <h1 className={styles.pageTitle}>Dashboard Analitik</h1>
+        <p className={styles.pageSubtitle}>Pantau dan filter data Facebook Marketplace secara cerdas secara real-time.</p>
+      </header>
+
+      {/* ── Bento Layout Grid ── */}
+      <div className={styles.bentoLayout}>
+        {/* Bento Box 1: Search Panel */}
+        <section className={`${styles.bentoBox} ${styles.searchPanel}`}>
+          <div className={styles.searchBar}>
+            <Search className={styles.searchIcon} size={18} />
+            <input
+              ref={searchInputRef}
+              id="search-input"
+              className={styles.searchInput}
+              type="text"
+              placeholder="Masukkan Barang Yang Ingin Dicari."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleKeyDown}
+              autoFocus
+              autoComplete="off"
+            />
+            {query && (
+              <button
+                className={styles.clearBtn}
+                onClick={() => { setQuery(''); setResults(null); searchInputRef.current?.focus(); }}
+                title="Hapus"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
           <button
-            className={`btn ${isMonitoring ? 'btn-secondary' : 'btn-primary'} ${styles.searchBtn}`}
+            className={`${styles.monitorBtn} ${isMonitoring ? styles.monitorBtnActive : ''}`}
             onClick={startMonitoring}
             disabled={!query.trim()}
           >
-            {isMonitoring ? '🛑 Stop Monitoring' : (loading ? <span className="spinner" /> : '📡 Mulai Monitoring')}
+            {isMonitoring ? (
+              <>
+                <Square size={14} fill="currentColor" />
+                <span>Stop Monitoring</span>
+              </>
+            ) : (
+              <>
+                <Play size={14} fill="currentColor" />
+                <span>Mulai Monitoring</span>
+              </>
+            )}
+          </button>
+        </section>
+
+        {/* Bento Box 2: Live Status */}
+        <section className={`${styles.bentoBox} ${styles.statusPanel}`}>
+          <div className={styles.statusHeader}>
+            <div className={styles.statusDotWrapper}>
+              <span className={`${styles.statusDot} ${isMonitoring ? styles.statusDotActive : ''}`}></span>
+              <Activity size={14} className={styles.activityIcon} />
+            </div>
+            <span className={styles.statusTitle}>Status Sistem</span>
+          </div>
+          <div className={styles.statusContent}>
+            {scrapeStatus ? (
+              <p className={styles.statusMessage}>{scrapeStatus}</p>
+            ) : (
+              <p className={styles.statusMessageMuted}>Sistem siap. Masukkan kata kunci untuk memulai.</p>
+            )}
+          </div>
+        </section>
+
+        {/* Bento Box 3: Filters (Desktop View only) */}
+        <section className={`${styles.bentoBox} ${styles.filtersPanel}`}>
+          <div className={styles.filtersHeader}>
+            <SlidersHorizontal size={14} className={styles.sectionIcon} />
+            <span className={styles.sectionTitle}>Penyaringan Lanjutan</span>
+          </div>
+          <div className={styles.filtersContent}>
+            {renderFiltersContent()}
+          </div>
+        </section>
+
+        {/* Mobile Filter Toggle Bar (Mobile View only) */}
+        <div className={styles.mobileFilterBar}>
+          <button
+            className={styles.mobileFilterBtn}
+            onClick={() => setIsFilterDrawerOpen(true)}
+          >
+            <SlidersHorizontal size={14} />
+            <span>Filter & Urutan</span>
+            {hasActiveFilters && <span className={styles.filterDot}></span>}
           </button>
         </div>
 
-        {/* Scrape Status */}
-        {scrapeStatus && (
-          <div className={styles.scrapeStatus}>{scrapeStatus}</div>
-        )}
+        {/* Bento Box 5: Main Results Container (Side-by-side matching filter panel height) */}
+        <div className={styles.resultsContainer}>
+          {/* Informative Stats & Active Filter Chips Bar */}
+          <div className={styles.informativeBar}>
+            <div className={styles.statCountBlock}>
+              <span className={styles.statCountValue}>{results ? filteredItems.length : 0}</span>
+              <span className={styles.statCountLabel}>Listing Ditemukan</span>
+            </div>
 
-        {/* Filters */}
-        <div className={styles.filters}>
-          <select
-            className={styles.filterSelect}
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as SearchOptions['sortBy'])}
-          >
-            {SORT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
+            {/* Render Active Filter Chips */}
+            <div className={styles.activeFiltersList}>
+              {results && results.query && (
+                <div className={styles.filterChipStatic} title="Pencarian Utama">
+                  <span>Query: "{results.query}"</span>
+                </div>
+              )}
 
-          <input
-            className={styles.filterInput}
-            type="number"
-            placeholder="Min Harga"
-            value={minPrice}
-            onChange={(e) => setMinPrice(e.target.value)}
-          />
-          <input
-            className={styles.filterInput}
-            type="number"
-            placeholder="Max Harga"
-            value={maxPrice}
-            onChange={(e) => setMaxPrice(e.target.value)}
-          />
-          <input
-            className={styles.filterInput}
-            type="text"
-            placeholder="Lokasi"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-          />
+              {sortBy !== 'relevance' && (
+                <div className={styles.filterChip}>
+                  <span>Urutan: {SORT_OPTIONS.find((o) => o.value === sortBy)?.label}</span>
+                  <button className={styles.clearChipBtn} onClick={() => setSortBy('relevance')}>
+                    <X size={10} />
+                  </button>
+                </div>
+              )}
 
-          <label className={styles.filterToggle}>
-            <input
-              type="checkbox"
-              checked={isBarter === true}
-              onChange={(e) => setIsBarter(e.target.checked ? true : undefined)}
-            />
-            <span>Barter only</span>
-          </label>
+              {minPrice && (
+                <div className={styles.filterChip}>
+                  <span>Min: Rp {Number(minPrice).toLocaleString('id-ID')}</span>
+                  <button className={styles.clearChipBtn} onClick={() => setMinPrice('')}>
+                    <X size={10} />
+                  </button>
+                </div>
+              )}
 
-          {(minPrice || maxPrice || location || isBarter) && (
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => {
-                setMinPrice('');
-                setMaxPrice('');
-                setLocation('');
-                setIsBarter(undefined);
-              }}
-            >
-              Reset filter
-            </button>
-          )}
+              {maxPrice && (
+                <div className={styles.filterChip}>
+                  <span>Max: Rp {Number(maxPrice).toLocaleString('id-ID')}</span>
+                  <button className={styles.clearChipBtn} onClick={() => setMaxPrice('')}>
+                    <X size={10} />
+                  </button>
+                </div>
+              )}
+
+              {location && (
+                <div className={styles.filterChip}>
+                  <span>Lokasi: "{location}"</span>
+                  <button className={styles.clearChipBtn} onClick={() => setLocation('')}>
+                    <X size={10} />
+                  </button>
+                </div>
+              )}
+
+              {isBarter === true && (
+                <div className={styles.filterChip}>
+                  <span>Khusus Tukar (BT / TT)</span>
+                  <button className={styles.clearChipBtn} onClick={() => setIsBarter(undefined)}>
+                    <X size={10} />
+                  </button>
+                </div>
+              )}
+
+              {isOpenNego === true && (
+                <div className={styles.filterChip}>
+                  <span>Bisa Nego</span>
+                  <button className={styles.clearChipBtn} onClick={() => setIsOpenNego(undefined)}>
+                    <X size={10} />
+                  </button>
+                </div>
+              )}
+
+              {isNoMinus === true && (
+                <div className={styles.filterChip}>
+                  <span>Tanpa Minus</span>
+                  <button className={styles.clearChipBtn} onClick={() => setIsNoMinus(undefined)}>
+                    <X size={10} />
+                  </button>
+                </div>
+              )}
+
+              {results && results.synonymsExpanded.length > 0 && (
+                <div className={styles.filterChipExpanded} title="Keyword diperluas otomatis">
+                  <span>Synonyms: {results.synonymsExpanded.slice(0, 2).join(', ')}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className={styles.scrollWrapper}>
+            {/* Error message banner */}
+            {error && (
+              <div className={styles.errorBanner}>
+                <span>{error}</span>
+              </div>
+            )}
+
+            {/* Loading indicator */}
+            {loading && (
+              <div className={styles.grid}>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={`skeleton-${i}`} className={styles.skeletonCard}>
+                    <div className={styles.skeletonImage} />
+                    <div className={styles.skeletonInfo}>
+                      <div className={styles.skeletonLineShort} />
+                      <div className={styles.skeletonLineLong} />
+                      <div className={styles.skeletonLineMedium} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Empty State: No search query */}
+            {!loading && !results && !error && (
+              <div className={styles.emptyState}>
+                <div className={styles.emptyIconContainer}>
+                  <Search size={32} className={styles.emptyIcon} />
+                </div>
+                <h3>Mulai Pencarian Baru</h3>
+                <p>Masukkan kata kunci produk di atas lalu klik Mulai Monitoring untuk menyerap data Marketplace Facebook secara langsung.</p>
+              </div>
+            )}
+
+            {/* Empty State: Query has 0 results */}
+            {!loading && results && filteredItems.length === 0 && (
+              <div className={styles.emptyState}>
+                <div className={styles.emptyIconContainer}>
+                  <SlidersHorizontal size={32} className={styles.emptyIcon} />
+                </div>
+                <h3>Tidak Ada Data Ditemukan</h3>
+                <p>Tidak ada hasil yang sesuai dengan kriteria filter Anda saat ini. Coba perkecil batasan filter Anda.</p>
+              </div>
+            )}
+
+            {/* Results Grid display: 2-Row Horizontal scrollable column flow */}
+            {!loading && results && filteredItems.length > 0 && (
+              <div
+                className={styles.grid}
+                ref={scrollContainerRef}
+              >
+                {filteredItems.map((listing) => (
+                  <div key={listing.id} className={styles.gridCardWrapper}>
+                    <ListingCard
+                      listing={listing}
+                      searchQuery={query}
+                      onClick={() => setSelectedListing(listing)}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* ── Results ─────────────────────────────────────────── */}
-      <div className={styles.results}>
-        {/* Error */}
-        {error && (
-          <div className={styles.errorBanner}>
-            ⚠️ {error}
-          </div>
-        )}
-
-        {/* Meta info */}
-        {results && !loading && (
-          <div className={styles.resultsMeta}>
-            <span className={styles.resultCount}>
-              {results.total.toLocaleString('id')} listing ditemukan
-              {results.synonymsExpanded.length > 0 && (
-                <span className={styles.synonymInfo}>
-                  {' '}· Expanded ke: {results.synonymsExpanded.slice(0, 3).join(', ')}
-                </span>
-              )}
-            </span>
-            <span className={styles.pageInfo}>
-              {isMonitoring ? '🔴 LIVE STREAM' : `Menampilkan 100 terbaru`}
-            </span>
-          </div>
-        )}
-
-        {/* Loading skeleton */}
-        {loading && (
-          <div className={styles.grid}>
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={`skeleton-${i}`} className={styles.skeletonCard}>
-                <div className="skeleton" style={{ height: 200, borderRadius: 'var(--radius-lg) var(--radius-lg) 0 0' }} />
-                <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div className="skeleton" style={{ height: 16, width: '80%' }} />
-                  <div className="skeleton" style={{ height: 12, width: '60%' }} />
-                  <div className="skeleton" style={{ height: 20, width: '40%' }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Empty state */}
-        {!loading && results?.items.length === 0 && (
-          <div className="empty-state">
-            <div style={{ fontSize: 64 }}>🔎</div>
-            <h3>Tidak ada listing ditemukan</h3>
-            <p>Coba keyword yang berbeda, atau klik 📡 Mulai Monitoring untuk mencari data baru secara live.</p>
-          </div>
-        )}
-
-        {/* No search yet */}
-        {!loading && !results && !error && (
-          <div className="empty-state">
-            <div style={{ fontSize: 64 }}>🛒</div>
-            <h3>Mulai pencarian</h3>
-            <p>Ketik keyword dan tekan Enter atau klik Cari.</p>
-            <div className={styles.tips}>
-              <div className={styles.tip}>💡 Cari "MBA M2" untuk menemukan "MacBook Air M2"</div>
-              <div className={styles.tip}>💡 Harga terdeteksi otomatis dari judul & deskripsi jika seller memasang harga clickbait</div>
-              <div className={styles.tip}>💡 Aktifkan "Barter only" untuk filter listing yang menawarkan tukar barang</div>
+      {/* ── Mobile Filter Bottom Sheet Drawer ── */}
+      {isFilterDrawerOpen && (
+        <div className={styles.drawerOverlay} onClick={() => setIsFilterDrawerOpen(false)}>
+          <div className={styles.drawerContainer} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.drawerHeader}>
+              <span className={styles.drawerTitle}>Pengaturan Filter</span>
+              <button className={styles.drawerCloseBtn} onClick={() => setIsFilterDrawerOpen(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className={styles.drawerBody}>
+              {renderFiltersContent()}
+            </div>
+            <div className={styles.drawerFooter}>
+              <button className={styles.applyBtn} onClick={() => setIsFilterDrawerOpen(false)}>
+                Terapkan Filter
+              </button>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Listing grid */}
-        {!loading && results && results.items.length > 0 && (
-          <>
-            <div className={styles.grid}>
-              {results.items.map((listing) => (
-                <ListingCard
-                  key={listing.id}
-                  listing={listing}
-                  searchQuery={query}
-                  onClick={() => setSelectedListing(listing)}
-                />
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* ── Detail Modal ────────────────────────────────────── */}
+      {/* ── Detail Modal (Asymmetric split design) ── */}
       {selectedListing && (
         <div className={styles.modalOverlay} onClick={() => setSelectedListing(null)}>
           <div className={styles.modalContainer} onClick={(e) => e.stopPropagation()}>
-            <button className={styles.modalCloseBtn} onClick={() => setSelectedListing(null)}>
-              ✕
-            </button>
+            {/* Modal Body */}
             <div className={styles.modalBody}>
-              {/* Image section */}
-              <div className={styles.modalImageSection}>
+              {/* Left Column: Image Area */}
+              <div className={styles.modalLeftColumn}>
                 {selectedListing.imageUrl ? (
                   <img
                     src={selectedListing.imageUrl}
@@ -376,111 +746,161 @@ export default function SearchPage() {
                 ) : (
                   <div className={styles.modalImagePlaceholder}>🖼️</div>
                 )}
-                <div className={styles.modalConfidenceBadge}>
+                <div className={styles.modalConfidenceTag}>
                   Confidence: {Math.round(selectedListing.confidenceScore * 100)}%
                 </div>
+                <button className={styles.modalCloseCircle} onClick={() => setSelectedListing(null)}>
+                  <X size={16} />
+                </button>
               </div>
 
-              {/* Content section */}
-              <div className={styles.modalContentSection}>
+              {/* Right Column: Detailed Info */}
+              <div className={styles.modalRightColumn}>
                 <h2 className={styles.modalTitle}>{selectedListing.title || '(Tanpa judul)'}</h2>
 
-                {/* Price display */}
-                <div className={styles.modalPrices}>
-                  {selectedListing.actualPriceAmount !== null && (
-                    <div className={styles.modalActualPrice}>
-                      <span className={styles.modalActualPriceVal}>
-                        Rp {selectedListing.actualPriceAmount.toLocaleString('id-ID')}
-                      </span>
-                      {/* Tampilkan listed price sebagai info sekunder jika merupakan harga clickbait */}
-                      {selectedListing.isPriceFake && selectedListing.listedPrice && (
-                        <span className={styles.modalPriceRaw}>
-                          Listed Price: {selectedListing.listedPrice}
-                        </span>
-                      )}
+                {/* Price Display Block */}
+                <div className={styles.modalPriceBlock}>
+                  {selectedListing.actualPriceAmount !== null ? (
+                    (() => {
+                      const scaledPrice = selectedListing.actualPriceAmount >= 100 && selectedListing.actualPriceAmount <= 9999
+                        ? selectedListing.actualPriceAmount * 1000
+                        : selectedListing.actualPriceAmount;
+                      return (
+                        <div className={styles.modalActualPrice}>
+                          <span className={styles.modalPriceHeading}>Harga Deteksi AI</span>
+                          <span className={styles.modalPriceVal}>
+                            Rp {scaledPrice.toLocaleString('id-ID')}
+                          </span>
+                          {selectedListing.isPriceFake && selectedListing.listedPrice && (
+                            <span className={styles.modalRawPriceText}>
+                              Harga Listed Facebook: {selectedListing.listedPrice}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()
+                  ) : selectedListing.listedPrice ? (
+                    <div className={styles.modalListedOnlyPrice}>
+                      <span className={styles.modalPriceHeading}>Harga Terdaftar</span>
+                      <span className={styles.modalPriceVal}>{selectedListing.listedPrice}</span>
                     </div>
-                  )}
-                  {/* Jika tidak ada actual price, tampilkan listed price langsung */}
-                  {selectedListing.actualPriceAmount === null && selectedListing.listedPrice && (
-                    <div className={styles.modalListedPrice}>
-                      Listed Price: {selectedListing.listedPrice}
-                    </div>
+                  ) : (
+                    <span className={styles.modalPriceVal}>Hubungi Penjual</span>
                   )}
                 </div>
 
-                {/* Flags badges */}
-                <div className={styles.modalFlags}>
-                  {selectedListing.isBarter && <span className="badge badge-warning">🔄 Barter</span>}
-                  {selectedListing.isTradeIn && <span className="badge badge-accent">↔️ Tukar Tambah (TT)</span>}
-                  {selectedListing.isNett && <span className="badge badge-muted">🔒 Harga Nett</span>}
-                </div>
+                {/* Info List Items */}
+                <div className={styles.modalDetailsList}>
+                  <div className={styles.modalDetailItem}>
+                    <div className={styles.modalItemHeader}>
+                      <MapPin size={14} className={styles.modalItemIcon} />
+                      <span className={styles.modalItemLabel}>Lokasi</span>
+                    </div>
+                    <span className={styles.modalItemValue}>{selectedListing.location || '-'}</span>
+                  </div>
 
-                {/* Meta details */}
-                <div className={styles.modalMetaGrid}>
-                  <div className={styles.modalMetaItem}>
-                    <span className={styles.modalMetaLabel}>📍 Lokasi</span>
-                    <span className={styles.modalMetaValue}>{selectedListing.location || '-'}</span>
+                  <div className={styles.modalDetailItem}>
+                    <div className={styles.modalItemHeader}>
+                      <Package size={14} className={styles.modalItemIcon} />
+                      <span className={styles.modalItemLabel}>Kondisi</span>
+                    </div>
+                    <span className={styles.modalItemValue}>{selectedListing.condition || '-'}</span>
                   </div>
-                  <div className={styles.modalMetaItem}>
-                    <span className={styles.modalMetaLabel}>📦 Kondisi</span>
-                    <span className={styles.modalMetaValue}>{selectedListing.condition || '-'}</span>
-                  </div>
-                  <div className={styles.modalMetaItem}>
-                    <span className={styles.modalMetaLabel}>👤 Penjual</span>
-                    <span className={styles.modalMetaValue}>
+
+                  <div className={styles.modalDetailItem}>
+                    <div className={styles.modalItemHeader}>
+                      <User size={14} className={styles.modalItemIcon} />
+                      <span className={styles.modalItemLabel}>Penjual</span>
+                    </div>
+                    <span className={styles.modalItemValue}>
                       {selectedListing.sellerUrl ? (
-                        <a href={selectedListing.sellerUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-tertiary)', textDecoration: 'underline' }}>
-                          {selectedListing.seller || 'Link Profil'}
+                        <a
+                          href={formatExternalUrl(selectedListing.sellerUrl)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={styles.sellerLink}
+                        >
+                          {selectedListing.seller || 'Buka Profil Penjual'}
                         </a>
                       ) : (
                         selectedListing.seller || '-'
                       )}
                     </span>
                   </div>
-                  <div className={styles.modalMetaItem}>
-                    <span className={styles.modalMetaLabel}>🕐 Diposting</span>
-                    <span className={styles.modalMetaValue}>{selectedListing.postedAt || '-'}</span>
+
+                  <div className={styles.modalDetailItem}>
+                    <div className={styles.modalItemHeader}>
+                      <Clock size={14} className={styles.modalItemIcon} />
+                      <span className={styles.modalItemLabel}>Diposting</span>
+                    </div>
+                    <span className={styles.modalItemValue}>{selectedListing.postedAt || '-'}</span>
                   </div>
                 </div>
 
-                {/* Keywords */}
+                {/* Flags/Tags section */}
+                {(selectedListing.isBarter || selectedListing.isTradeIn || selectedListing.isNett) && (
+                  <div className={styles.modalFlags}>
+                    {selectedListing.isBarter && <span className={styles.flagPillBarter}>🔄 Barter</span>}
+                    {selectedListing.isTradeIn && <span className={styles.flagPillTrade}>↔️ Tukar Tambah</span>}
+                    {selectedListing.isNett && <span className={styles.flagPillNett}>🔒 Nett</span>}
+                  </div>
+                )}
+
+                {/* AI Detected Terms Keywords */}
                 {selectedListing.detectedKeywords && selectedListing.detectedKeywords.length > 0 && (
                   <div className={styles.modalKeywordsSection}>
-                    <span className={styles.modalKeywordsTitle}>🔑 Istilah Terdeteksi</span>
-                    <div className={styles.modalKeywords}>
-                      {selectedListing.detectedKeywords.map((kw, i) => (
-                        <span key={i} className="tag-pill" title={kw.meaning}>
-                          {CATEGORY_ICONS[kw.category] ?? '📌'} <strong>{kw.term}</strong>: {kw.meaning}
-                        </span>
-                      ))}
+                    <h4 className={styles.modalSectionTitle}>Istilah Terdeteksi AI</h4>
+                    <div className={styles.modalKeywordsGrid}>
+                      {selectedListing.detectedKeywords.map((kw, i) => {
+                        const IconComponent = CATEGORY_ICONS[kw.category] || Sparkles;
+                        return (
+                          <div key={i} className={styles.keywordCard} title={kw.meaning}>
+                            <IconComponent size={12} className={styles.keywordIcon} />
+                            <span className={styles.keywordTerm}>{kw.term}</span>
+                            <span className={styles.keywordDivider}>:</span>
+                            <span className={styles.keywordMeaning}>{kw.meaning}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
 
-                {/* Description */}
-                <div className={styles.modalDescriptionSection}>
-                  <span className={styles.modalDescTitle}>📝 Deskripsi Lengkap</span>
-                  <div className={styles.modalDescText}>
+                {/* Detailed Description */}
+                <div className={styles.modalDescSection}>
+                  <h4 className={styles.modalSectionTitle}>Deskripsi Lengkap</h4>
+                  <p className={styles.modalDescText}>
                     {selectedListing.description || '(Tidak ada deskripsi dari penjual)'}
-                  </div>
+                  </p>
+                </div>
+
+                {/* Primary Redirect Action */}
+                <div className={styles.modalActions}>
+                  {getWhatsAppLink(selectedListing.title, selectedListing.description) && (
+                    <a
+                      href={getWhatsAppLink(selectedListing.title, selectedListing.description)!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.whatsappBtn}
+                    >
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style={{ marginRight: '6px' }}>
+                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.746.953 3.71 1.458 5.704 1.459h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                      </svg>
+                      <span>Hub WA</span>
+                    </a>
+                  )}
+
+                  <a
+                    href={selectedListing.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.primaryRedirectBtn}
+                  >
+                    <span>Buka di Facebook Marketplace</span>
+                    <ExternalLink size={14} />
+                  </a>
                 </div>
               </div>
-            </div>
-
-            {/* Footer with Marketplace redirect action */}
-            <div className={styles.modalFooter}>
-              <button className="btn btn-ghost" onClick={() => setSelectedListing(null)}>
-                Tutup
-              </button>
-              <a
-                href={selectedListing.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn-primary"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
-              >
-                🌐 Buka di Facebook Marketplace
-              </a>
             </div>
           </div>
         </div>

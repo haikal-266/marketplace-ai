@@ -16,6 +16,8 @@ export interface ScrapeOptions {
   count?: number;       // Jumlah listing (default: 30)
   headless?: boolean;   // Headless mode (default: true)
   details?: boolean;    // Ambil detail page (default: true)
+  minPrice?: number;    // Filter harga minimal
+  maxPrice?: number;    // Filter harga maksimal
 }
 
 type ScrapeStatus = 'idle' | 'running' | 'done' | 'failed';
@@ -142,6 +144,14 @@ class ScraperService extends EventEmitter {
 
     if (options.details !== false) {
       args.push('--details');
+    }
+
+    if (options.minPrice !== undefined && options.minPrice !== null) {
+      args.push(`--minPrice=${options.minPrice}`);
+    }
+
+    if (options.maxPrice !== undefined && options.maxPrice !== null) {
+      args.push(`--maxPrice=${options.maxPrice}`);
     }
 
     // Path ke cookie temp file

@@ -263,46 +263,8 @@ class SearchService {
     };
   }
 
-  /**
-   * Expand query dengan sinonim dari database.
-   * Contoh: "Macbook M2" → ["MBA M2", "MacBook Air M2"]
-   */
   private async expandWithSynonyms(query: string): Promise<string[]> {
-    const queryLower = query.toLowerCase();
-    const expanded: string[] = [];
-
-    try {
-      const synonymGroups = await prisma.productSynonym.findMany({
-        where: { isActive: true },
-      });
-
-      for (const group of synonymGroups) {
-        const aliases = group.aliases as string[];
-        const canonical = group.canonicalName.toLowerCase();
-
-        // Cek apakah query mengandung canonical name atau salah satu alias
-        const isMatch =
-          queryLower.includes(canonical) ||
-          aliases.some((alias) => queryLower.includes(alias.toLowerCase()));
-
-        if (isMatch) {
-          // Tambahkan semua alias sebagai expanded query
-          for (const alias of aliases) {
-            const expanded_query = query.toLowerCase().replace(
-              queryLower.includes(canonical) ? canonical : aliases.find((a) => queryLower.includes(a.toLowerCase()))!.toLowerCase(),
-              alias.toLowerCase()
-            );
-            if (expanded_query !== query.toLowerCase()) {
-              expanded.push(expanded_query);
-            }
-          }
-        }
-      }
-    } catch (err) {
-      log.warn('Gagal expand synonyms', err);
-    }
-
-    return [...new Set(expanded)].slice(0, 5); // Max 5 expanded queries
+    return [];
   }
 
   private buildFilters(options: SearchOptions): string {
@@ -320,8 +282,8 @@ class SearchService {
     if (options.excludeFakePrice) {
       conditions.push(`is_price_fake = false`);
     }
-    if (options.isBarter !== undefined) {
-      conditions.push(`is_barter = ${options.isBarter}`);
+    if (options.isBarter !== undefined && options.isBarter === true) {
+      conditions.push(`(is_barter = true OR is_trade_in = true)`);
     }
     if (options.isTradeIn !== undefined) {
       conditions.push(`is_trade_in = ${options.isTradeIn}`);

@@ -146,7 +146,7 @@ async def mkctx(p, cfg):
                                 device_scale_factor=fp.screen.devicePixelRatio)
     cks = load_cookies(cfg.cookies_file)
     if cks: await ctx.add_cookies(cks)
-    return ctx, fp
+    return br, ctx, fp
 
 
 async def scroll_load(page: Page, cfg):
@@ -384,139 +384,153 @@ async def run(cfg=None):
     seen_urls = set()
 
     async with async_playwright() as p:
-        ctx, fp = await mkctx(p, cfg)
-        page = await ctx.new_page()
-        await init_stealth(page, fp)
+        br, ctx, fp = await mkctx(p, cfg)
+        try:
+            page = await ctx.new_page()
+            await init_stealth(page, fp)
 
-        if not cfg.location:
-            city_id = await detect_city_id(page)
-            if city_id: cfg.location = city_id
+            if not cfg.location:
+                city_id = await detect_city_id(page)
+                if city_id: cfg.location = city_id
 
-        for attempt in range(cfg.max_retries):
-            try:
-                url = cfg.marketplace_url
-                await page.goto(url, wait_until="domcontentloaded", timeout=45000)
-                await S(3, 5); break
-            except Exception as e:
-                await asyncio.sleep(2**attempt*3)
-        else:
-            await ctx.close(); return
+            for attempt in range(cfg.max_retries):
+                try:
+                    url = cfg.marketplace_url
+                    await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                    await S(3, 5); break
+                except Exception as e:
+                    await asyncio.sleep(2**attempt*3)
+            else:
+                return
 
-        await dismiss(page)
-        await human_mouse(page, random.randint(200, 600), random.randint(100, 400))
-        try: await page.wait_for_selector(CARD_LINK, timeout=20000)
-        except: pass
+            await dismiss(page)
+            await human_mouse(page, random.randint(200, 600), random.randint(100, 400))
+            try: await page.wait_for_selector(CARD_LINK, timeout=20000)
+            except: pass
 
-        prev_len = 0
-        stall = 0
+            prev_len = 0
+            stall = 0
 
-        while True:
-            try:
-                await human_scroll(page)
-                await asyncio.sleep(random.uniform(0.5, 1.2))
-                
-                raw = await extract_cards(page)
-                cur_len = len(raw)
-                if cur_len == prev_len: stall += 1
-                else: stall = 0
-                prev_len = cur_len
-
-                new_listings = []
-                for item in raw:
-                    url = item["url"].split("?ref=")[0]
-                    if url in seen_urls: continue
+            while True:
+                try:
+                    await human_scroll(page)
+                    await asyncio.sleep(random.uniform(0.5, 1.2))
                     
-                    info = parse_card(item.get("txt", []), item.get("aria", ""))
-                    price = info["price"]
-                    if price and len(price) > 50:
-                        title_part = re.split(r'\s*(?:Rp|IDR|[$€£¥])\s*[0-9]', price)[0].strip()
-                        if title_part and not info["title"]:
-                            info["title"] = title_part
-                        m = re.search(r'(?:Rp|IDR|[$€£¥])\s*[0-9][0-9.,]*\s*$', price)
-                        if m: price = m.group().strip()
-                    if price and len(price) < 40:
-                        parts = re.split(r'(?<=[0-9])(?=[R][p])|(?<=[0-9])(?=[$€£¥])', price)
-                        price = parts[0].strip()
-                    
-                    l = Listing(title=info["title"], price=price, location=info["location"],
-                                posted=info.get("posted",""), url=url, image_url=item["image_url"])
-                    if l.title: l.title = l.title.replace("+", " ").replace("  ", " ").strip()
-                    
-                    if l.title or l.price:
-                        seen_urls.add(url)
-                        new_listings.append(l)
+                    raw = await extract_cards(page)
+                    cur_len = len(raw)
+                    if cur_len == prev_len: stall += 1
+                    else: stall = 0
+                    prev_len = cur_len
 
-                # Jika tidak ada detail scraping, emit langsung (non-details mode)
-                if not cfg.scrape_details:
-                    for l in new_listings:
-                        if cfg.api_mode:
-                            print(json.dumps(l.to_dict(), ensure_ascii=False), flush=True)
-                        else:
-                            t = l.title[:45] if l.title else "-"
-                            print(f"[NEW] {t:45s} {l.price:15s} {l.location}")
+                    new_listings = []
+                    for item in raw:
+                        url = item["url"].split("?ref=")[0]
+                        if url in seen_urls: continue
+                        
+                        info = parse_card(item.get("txt", []), item.get("aria", ""))
+                        price = info["price"]
+                        if price and len(price) > 50:
+                            title_part = re.split(r'\s*(?:Rp|IDR|[$€£¥])\s*[0-9]', price)[0].strip()
+                            if title_part and not info["title"]:
+                                info["title"] = title_part
+                            m = re.search(r'(?:Rp|IDR|[$€£¥])\s*[0-9][0-9.,]*\s*$', price)
+                            if m: price = m.group().strip()
+                        if price and len(price) < 40:
+                            parts = re.split(r'(?<=[0-9])(?=[R][p])|(?<=[0-9])(?=[$€£¥])', price)
+                            price = parts[0].strip()
+                        
+                        l = Listing(title=info["title"], price=price, location=info["location"],
+                                    posted=info.get("posted",""), url=url, image_url=item["image_url"])
+                        if l.title: l.title = l.title.replace("+", " ").replace("  ", " ").strip()
+                        
+                        if l.title or l.price:
+                            seen_urls.add(url)
+                            new_listings.append(l)
 
-                # Detail pages: scrape dulu, baru emit
-                # Listing hanya di-emit setelah detail page selesai dikunjungi
-                # agar description tersedia untuk deteksi barter/TT yang akurat.
-                if cfg.scrape_details and new_listings:
-                    to_detail = new_listings[:min(len(new_listings), cfg.max_detail_pages)]
-                    sem = asyncio.Semaphore(3)
-                    async def _detail(l):
-                        async with sem:
-                            p2 = await ctx.new_page()
-                            try:
-                                d = await scrape_detail(p2, l.url)
-                                if d.get("title") and len(d.get("title","")) > len(l.title or ""): l.title = d["title"]
-                                if d.get("price") and len(d.get("price","")) > len(l.price or ""): l.price = d["price"]
-                                if d.get("location") and l.location != d["location"]: l.location = d["location"]
-                                if d.get("seller"): l.seller = d["seller"]
-                                if d.get("seller_url"): l.seller_url = d["seller_url"]
-                                if d.get("posted"): l.posted = d["posted"]
-                                if d.get("condition"): l.condition = d["condition"]
-                                if d.get("description"): l.description = d["description"]
-                                if d.get("delivery"): l.delivery = d["delivery"]
-                            except: pass
-                            finally: await p2.close()
-                            # Hanya emit jika deskripsi berhasil diambil.
-                            # Listing tanpa deskripsi tidak ditampilkan di UI
-                            # agar filter barter/TT bisa bekerja dengan akurat.
-                            if l.description:
-                                if cfg.api_mode:
-                                    print(json.dumps(l.to_dict(), ensure_ascii=False), flush=True)
-                                else:
-                                    t = l.title[:45] if l.title else "-"
-                                    print(f"[DETAIL] {t:45s} {l.price:15s} {l.location}")
+                    # Jika tidak ada detail scraping, emit langsung (non-details mode)
+                    if not cfg.scrape_details:
+                        for l in new_listings:
+                            if cfg.api_mode:
+                                print(json.dumps(l.to_dict(), ensure_ascii=False), flush=True)
                             else:
-                                if not cfg.api_mode:
-                                    t = l.title[:45] if l.title else "-"
-                                    print(f"[SKIP-NO-DESC] {t:45s} {l.price:15s} {l.location}")
-                    await asyncio.gather(*[_detail(l) for l in to_detail])
+                                t = l.title[:45] if l.title else "-"
+                                print(f"[NEW] {t:45s} {l.price:15s} {l.location}")
 
-                if stall >= 4:
-                    if cfg.api_mode:
-                        print(json.dumps({"status": "exhausted"}, ensure_ascii=False), flush=True)
-                    break
-                if cur_len >= cfg.max_listings * 5:
-                    if cfg.api_mode:
-                        print(json.dumps({"status": "exhausted"}, ensure_ascii=False), flush=True)
-                    break
+                    # Detail pages: scrape dulu, baru emit
+                    # Listing hanya di-emit setelah detail page selesai dikunjungi
+                    # agar description tersedia untuk deteksi barter/TT yang akurat.
+                    if cfg.scrape_details and new_listings:
+                        to_detail = new_listings[:min(len(new_listings), cfg.max_detail_pages)]
+                        sem = asyncio.Semaphore(2)
+                        async def _detail(l):
+                            async with sem:
+                                p2 = await ctx.new_page()
+                                try:
+                                    d = await scrape_detail(p2, l.url)
+                                    if d.get("title") and len(d.get("title","")) > len(l.title or ""): l.title = d["title"]
+                                    if d.get("price") and len(d.get("price","")) > len(l.price or ""): l.price = d["price"]
+                                    if d.get("location") and l.location != d["location"]: l.location = d["location"]
+                                    if d.get("seller"): l.seller = d["seller"]
+                                    if d.get("seller_url"): l.seller_url = d["seller_url"]
+                                    if d.get("posted"): l.posted = d["posted"]
+                                    if d.get("condition"): l.condition = d["condition"]
+                                    if d.get("description"): l.description = d["description"]
+                                    if d.get("delivery"): l.delivery = d["delivery"]
+                                except: pass
+                                finally: await p2.close()
+                                # Hanya emit jika deskripsi berhasil diambil.
+                                # Listing tanpa deskripsi tidak ditampilkan di UI
+                                # agar filter barter/TT bisa bekerja dengan akurat.
+                                if l.description:
+                                    if cfg.api_mode:
+                                        print(json.dumps(l.to_dict(), ensure_ascii=False), flush=True)
+                                    else:
+                                        t = l.title[:45] if l.title else "-"
+                                        print(f"[DETAIL] {t:45s} {l.price:15s} {l.location}")
+                                else:
+                                    if not cfg.api_mode:
+                                        t = l.title[:45] if l.title else "-"
+                                        print(f"[SKIP-NO-DESC] {t:45s} {l.price:15s} {l.location}")
+                        await asyncio.gather(*[_detail(l) for l in to_detail])
 
-            except Exception as e:
-                if not cfg.api_mode:
-                    print(f"Exception in scraper loop: {e}")
+                    if stall >= 4:
+                        if cfg.api_mode:
+                            print(json.dumps({"status": "exhausted"}, ensure_ascii=False), flush=True)
+                        break
+                    if cur_len >= cfg.max_listings * 5:
+                        if cfg.api_mode:
+                            print(json.dumps({"status": "exhausted"}, ensure_ascii=False), flush=True)
+                        break
 
-            pass
+                except Exception as e:
+                    if not cfg.api_mode:
+                        print(f"Exception in scraper loop: {e}")
+        finally:
+            try: await ctx.close()
+            except: pass
+            try: await br.close()
+            except: pass
 
 
 if __name__ == "__main__":
     import sys
     cookies_path = None
+    min_price = 0
+    max_price = 0
     for a in sys.argv:
         if a.startswith("--cookies="): cookies_path = a.split("=", 1)[1]
+        if a.startswith("--minPrice="): 
+            try: min_price = int(a.split("=", 1)[1])
+            except: pass
+        if a.startswith("--maxPrice="): 
+            try: max_price = int(a.split("=", 1)[1])
+            except: pass
     cfg = ScraperConfig(
         location=sys.argv[1] if len(sys.argv) > 1 else "",
         search_query=sys.argv[2] if len(sys.argv) > 2 else "",
         max_listings=int(sys.argv[3]) if len(sys.argv) > 3 else 50,
+        min_price=min_price,
+        max_price=max_price,
         headless="--headless" in sys.argv,
         scrape_details="--details" in sys.argv,
         api_mode="--api" in sys.argv,

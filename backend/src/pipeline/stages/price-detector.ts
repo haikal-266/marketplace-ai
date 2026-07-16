@@ -148,10 +148,6 @@ export class PriceDetectorStage
 
   // ─── Step 1: Parse Listed Price ─────────────────────────────────────────
 
-  /**
-   * Parse harga mentah dari scraper ke integer Rupiah.
-   * Handle format: "Rp 1.500.000", "Rp1500000", "IDR 1500000", "1.500.000"
-   */
   private parseListedPrice(raw: string): number | null {
     if (!raw) return null;
 
@@ -161,8 +157,17 @@ export class PriceDetectorStage
       .replace(/,/g, '')                // Hapus koma
       .trim();
 
-    const num = parseInt(cleaned, 10);
-    return isNaN(num) ? null : num;
+    let num = parseInt(cleaned, 10);
+    if (isNaN(num)) return null;
+
+    // Auto-scale clickbait prices standard in Indonesian FB Marketplace:
+    // - Ribuan (1.000 - 9.999) -> dikalikan 1.000 menjadi Jutaan Rupiah (contoh: 1.500 -> 1.500.000)
+    // - Ratusan (100 - 999) -> dikalikan 1.000 menjadi Ratus Ribuan Rupiah (contoh: 350 -> 350.000)
+    if (num >= 100 && num <= 9999) {
+      num = num * 1000;
+    }
+
+    return num;
   }
 
   // ─── Step 2: Detect Fake Price ──────────────────────────────────────────

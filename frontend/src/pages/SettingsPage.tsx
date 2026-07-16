@@ -1,16 +1,37 @@
 import { useState, useEffect, useCallback } from 'react';
+import { 
+  Link, 
+  Bug, 
+  Database, 
+  BookOpen, 
+  Trash2, 
+  Plus, 
+  Filter,
+  DollarSign,
+  Package,
+  RefreshCw,
+  Sparkles,
+  Truck,
+  ShieldCheck,
+  Bookmark,
+  ToggleLeft,
+  ToggleRight,
+  HelpCircle,
+  AlertTriangle,
+  Play
+} from 'lucide-react';
 import { authApi, scraperApi, dictionaryApi, listingsApi } from '../services/api';
 import type { AuthStatus, DictionaryTerm } from '../types';
 import styles from './SettingsPage.module.css';
 
 const CATEGORIES = [
-  { value: 'pricing', label: '💰 Pricing' },
-  { value: 'condition', label: '📦 Condition' },
-  { value: 'trade', label: '🔄 Trade' },
-  { value: 'urgency', label: '⚡ Urgency' },
-  { value: 'delivery', label: '🚚 Delivery' },
-  { value: 'warranty', label: '🛡️ Warranty' },
-  { value: 'other', label: '📌 Other' },
+  { value: 'pricing', label: 'Pricing', icon: DollarSign },
+  { value: 'condition', label: 'Condition', icon: Package },
+  { value: 'trade', label: 'Trade', icon: RefreshCw },
+  { value: 'urgency', label: 'Urgency', icon: Sparkles },
+  { value: 'delivery', label: 'Delivery', icon: Truck },
+  { value: 'warranty', label: 'Warranty', icon: ShieldCheck },
+  { value: 'other', label: 'Other', icon: Bookmark },
 ];
 
 export default function SettingsPage() {
@@ -32,7 +53,7 @@ export default function SettingsPage() {
   const [testLoading, setTestLoading] = useState(false);
   const [testStatus, setTestStatus] = useState<string | null>(null);
 
-  // ── Auth ─────────────────────────────────────────────────────────────────
+  // ── Auth ──
   const fetchAuthStatus = useCallback(async () => {
     try {
       const status = await authApi.status();
@@ -85,7 +106,7 @@ export default function SettingsPage() {
     }
   };
 
-  // ── Dictionary ───────────────────────────────────────────────────────────
+  // ── Dictionary ──
   const fetchTerms = useCallback(async () => {
     setTermsLoading(true);
     try {
@@ -107,7 +128,7 @@ export default function SettingsPage() {
       await fetchTerms();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Gagal menambah istilah');
-    } finally { setAddingTerm(false); }
+    } finally { setNewTerm((p) => ({ ...p, term: '', meaning: '' })); setAddingTerm(false); }
   };
 
   const handleToggleTerm = async (term: DictionaryTerm) => {
@@ -135,7 +156,7 @@ export default function SettingsPage() {
     }
   };
 
-  // ── Test Scrape ──────────────────────────────────────────────────────────
+  // ── Test Scrape ──
   const handleTestScrape = async () => {
     if (!testQuery.trim()) return;
     setTestLoading(true);
@@ -146,16 +167,16 @@ export default function SettingsPage() {
         const status = await scraperApi.status();
         if (status.status === 'done') {
           clearInterval(poll);
-          setTestStatus(`✅ Selesai! ${status.totalFound ?? 0} listing ditemukan.`);
+          setTestStatus(`Selesai! ${status.totalFound ?? 0} listing ditemukan.`);
           setTestLoading(false);
         } else if (status.status === 'failed') {
           clearInterval(poll);
-          setTestStatus(`❌ Gagal: ${status.error}`);
+          setTestStatus(`Gagal: ${status.error}`);
           setTestLoading(false);
         }
       }, 3000);
     } catch (err) {
-      setTestStatus(`❌ ${err instanceof Error ? err.message : 'Error'}`);
+      setTestStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
       setTestLoading(false);
     }
   };
@@ -166,23 +187,29 @@ export default function SettingsPage() {
 
   const loginStateLabel: Record<string, string> = {
     idle: '',
-    waiting_user: '⏳ Menunggu login...',
-    detecting: '🔍 Mendeteksi session...',
-    success: '✅ Login berhasil!',
-    failed: '❌ Login gagal',
+    waiting_user: 'Menunggu login...',
+    detecting: 'Mendeteksi session...',
+    success: 'Login berhasil!',
+    failed: 'Login gagal',
   };
 
   return (
     <div className={styles.page}>
-      <div className={styles.header}>
-        <h1>⚙️ Settings</h1>
-        <p>Kelola koneksi Facebook, kamus istilah, dan pengaturan lainnya.</p>
-      </div>
+      {/* Page Header */}
+      <header className={styles.header}>
+        <h1 className={styles.pageTitle}>Pengaturan Sistem</h1>
+        <p className={styles.pageSubtitle}>Kelola integrasi Facebook, kamus pendeteksi AI, dan database.</p>
+      </header>
 
-      <div className={styles.sections}>
-        {/* ── Facebook Connection ────────────────────────────────── */}
-        <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>🔗 Koneksi Facebook</h2>
+      {/* Bento Layout sections */}
+      <div className={styles.bentoLayout}>
+        {/* Bento Card 1: Facebook Connection */}
+        <section className={`${styles.bentoBox} ${styles.connectionBox}`}>
+          <div className={styles.boxHeader}>
+            <Link size={16} className={styles.boxIcon} />
+            <h2 className={styles.boxTitle}>Koneksi Facebook</h2>
+          </div>
+          
           <div className={styles.authCard}>
             {authStatus ? (
               <div className={styles.authStatus}>
@@ -191,9 +218,9 @@ export default function SettingsPage() {
                   <span className={styles.statusText}>
                     {authStatus.isConnected
                       ? authStatus.isSessionLikelyValid
-                        ? 'Terkoneksi (session aktif)'
-                        : 'Terkoneksi (session mungkin expired)'
-                      : 'Belum terkoneksi'
+                        ? 'Terkoneksi (Session Aktif)'
+                        : 'Terkoneksi (Session Expired)'
+                      : 'Belum Terkoneksi'
                     }
                   </span>
                 </div>
@@ -204,123 +231,138 @@ export default function SettingsPage() {
                 )}
               </div>
             ) : (
-              <div className="skeleton" style={{ height: 24, width: 200 }} />
+              <div className={styles.skeletonLine} />
             )}
 
             {authError && (
-              <div className={styles.errorMsg}>⚠️ {authError}</div>
+              <div className={styles.errorMsg}>
+                <AlertTriangle size={14} />
+                <span>{authError}</span>
+              </div>
             )}
 
             <div className={styles.authActions}>
               {!authStatus?.isConnected ? (
                 <button
-                  className="btn btn-primary"
+                  className={styles.primaryBtn}
                   onClick={handleConnect}
                   disabled={authLoading}
                   id="btn-connect-facebook"
                 >
-                  {authLoading ? <><span className="spinner" /> Membuka browser...</> : '🔑 Login Facebook'}
+                  {authLoading ? 'Membuka Browser...' : 'Hubungkan Facebook'}
                 </button>
               ) : (
                 <button
-                  className="btn btn-danger"
+                  className={styles.dangerBtn}
                   onClick={handleDisconnect}
                   id="btn-disconnect-facebook"
                 >
-                  Disconnect
+                  Disconnect Akun
                 </button>
               )}
             </div>
 
-            <div className={styles.authNote}>
-              <strong>Cara kerja:</strong> Klik Login Facebook → browser akan terbuka → login seperti biasa →
-              cookies tersimpan terenkripsi di database. Cookies tidak pernah dikirim ke browser kamu.
+            <div className={styles.infoNote}>
+              <HelpCircle size={14} className={styles.infoIcon} />
+              <p>Facebook cookies akan terenkripsi dan disimpan di backend Anda. Tidak pernah diteruskan ke client browser.</p>
             </div>
           </div>
         </section>
 
-        {/* ── Test Scraping ──────────────────────────────────────── */}
-        <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>🕷 Test Scraping</h2>
-          <div className={styles.testCard}>
-            <div className={styles.testRow}>
+        {/* Bento Card 2: Test Scraping */}
+        <section className={`${styles.bentoBox} ${styles.testBox}`}>
+          <div className={styles.boxHeader}>
+            <Bug size={16} className={styles.boxIcon} />
+            <h2 className={styles.boxTitle}>Uji Scraper</h2>
+          </div>
+
+          <div className={styles.testForm}>
+            <div className={styles.inputGroup}>
               <input
-                className="input"
+                className={styles.input}
                 type="text"
-                placeholder="Keyword test (contoh: iphone)"
+                placeholder="Kata kunci pengujian (misal: iphone)..."
                 value={testQuery}
                 onChange={(e) => setTestQuery(e.target.value)}
-                style={{ flex: 1 }}
+                disabled={testLoading || !authStatus?.isConnected}
               />
               <button
-                className="btn btn-secondary"
+                className={styles.secondaryBtn}
                 onClick={handleTestScrape}
                 disabled={testLoading || !testQuery.trim() || !authStatus?.isConnected}
                 id="btn-test-scrape"
               >
-                {testLoading ? <span className="spinner" /> : 'Test'}
+                {testLoading ? 'Running...' : 'Jalankan'}
               </button>
             </div>
+
             {testStatus && (
-              <div className={styles.testStatus}>{testStatus}</div>
+              <div className={styles.testStatusPanel}>
+                <Play size={12} className={styles.playIcon} />
+                <span>{testStatus}</span>
+              </div>
             )}
+
             {!authStatus?.isConnected && (
-              <div className={styles.testNote}>⚠️ Login Facebook terlebih dahulu untuk test scraping.</div>
+              <p className={styles.warnText}>* Sambungkan Facebook terlebih dahulu untuk menguji scraper.</p>
             )}
           </div>
         </section>
 
-        {/* ── Kelola Data ────────────────────────────────────────── */}
-        <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>🗄️ Kelola Data</h2>
-          <div className={styles.testCard} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-            <p className={styles.sectionDesc} style={{ margin: 0, color: 'var(--text-secondary)' }}>
-              Hapus seluruh data hasil penyerapan (listings) yang disimpan di database PostgreSQL Anda untuk memulai ulang scraping bersih.
+        {/* Bento Card 3: Kelola Data */}
+        <section className={`${styles.bentoBox} ${styles.dataBox}`}>
+          <div className={styles.boxHeader}>
+            <Database size={16} className={styles.boxIcon} />
+            <h2 className={styles.boxTitle}>Manajemen Database</h2>
+          </div>
+          <div className={styles.dataContent}>
+            <p className={styles.dataDesc}>
+              Kosongkan semua data listings hasil scraping dari database PostgreSQL Anda secara permanen.
             </p>
-            <div style={{ marginTop: 'var(--space-2)' }}>
-              <button
-                className="btn btn-danger"
-                onClick={handleDeleteAllListings}
-                id="btn-clear-listings"
-              >
-                🗑️ Hapus Semua Hasil Scraping
-              </button>
-            </div>
+            <button
+              className={styles.dangerBtnOutline}
+              onClick={handleDeleteAllListings}
+              id="btn-clear-listings"
+            >
+              <Trash2 size={14} />
+              <span>Hapus Seluruh Hasil Scraping</span>
+            </button>
           </div>
         </section>
 
-        {/* ── Dictionary ─────────────────────────────────────────── */}
-        <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>📖 Kamus Marketplace Indonesia</h2>
-          <p className={styles.sectionDesc}>
-            Tambah istilah baru yang akan otomatis terdeteksi di pipeline. Perubahan langsung efektif.
+        {/* Bento Card 4: Dictionary */}
+        <section className={`${styles.bentoBox} ${styles.dictionaryBox}`}>
+          <div className={styles.boxHeader}>
+            <BookOpen size={16} className={styles.boxIcon} />
+            <h2 className={styles.boxTitle}>Kamus Istilah Marketplace</h2>
+          </div>
+
+          <p className={styles.dictionaryDesc}>
+            Kata kunci yang ditambahkan di sini akan digunakan oleh pipeline AI untuk normalisasi & klasifikasi.
           </p>
 
           {/* Add Term Form */}
           <form className={styles.addTermForm} onSubmit={handleAddTerm}>
             <input
-              className="input"
+              className={styles.input}
               type="text"
-              placeholder="Istilah (BU, TT, Nett...)"
+              placeholder="BU, TT, BT..."
               value={newTerm.term}
               onChange={(e) => setNewTerm((p) => ({ ...p, term: e.target.value }))}
               required
-              style={{ width: 140 }}
             />
             <input
-              className="input"
+              className={styles.input}
               type="text"
-              placeholder="Arti istilah"
+              placeholder="Arti (misal: Butuh Uang)"
               value={newTerm.meaning}
               onChange={(e) => setNewTerm((p) => ({ ...p, meaning: e.target.value }))}
               required
-              style={{ flex: 1 }}
             />
             <select
-              className="input"
+              className={styles.select}
               value={newTerm.category}
               onChange={(e) => setNewTerm((p) => ({ ...p, category: e.target.value }))}
-              style={{ width: 150 }}
             >
               {CATEGORIES.map((c) => (
                 <option key={c.value} value={c.value}>{c.label}</option>
@@ -328,20 +370,23 @@ export default function SettingsPage() {
             </select>
             <button
               type="submit"
-              className="btn btn-primary"
+              className={styles.primaryBtnSquare}
               disabled={addingTerm}
               id="btn-add-term"
             >
-              {addingTerm ? <span className="spinner" /> : '+ Tambah'}
+              <Plus size={16} />
             </button>
           </form>
 
-          {/* Filter */}
-          <div className={styles.termsFilter}>
-            <span className={styles.termsCount}>{filteredTerms.length} istilah</span>
+          {/* Dictionary Filtering */}
+          <div className={styles.dictionaryFilterBar}>
+            <div className={styles.filterTitleRow}>
+              <Filter size={12} className={styles.filterIcon} />
+              <span className={styles.termsCount}>{filteredTerms.length} kata terdaftar</span>
+            </div>
             <div className={styles.categoryFilters}>
               <button
-                className={`btn btn-sm ${!filterCategory ? 'btn-primary' : 'btn-ghost'}`}
+                className={`${styles.filterTab} ${!filterCategory ? styles.filterTabActive : ''}`}
                 onClick={() => setFilterCategory('')}
               >
                 Semua
@@ -349,7 +394,7 @@ export default function SettingsPage() {
               {CATEGORIES.map((c) => (
                 <button
                   key={c.value}
-                  className={`btn btn-sm ${filterCategory === c.value ? 'btn-primary' : 'btn-ghost'}`}
+                  className={`${styles.filterTab} ${filterCategory === c.value ? styles.filterTabActive : ''}`}
                   onClick={() => setFilterCategory(c.value)}
                 >
                   {c.label}
@@ -358,43 +403,53 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* Terms Table */}
+          {/* Terms List Grid */}
           {termsLoading ? (
             <div className={styles.termsGrid}>
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="skeleton" style={{ height: 44, borderRadius: 'var(--radius-md)' }} />
-              ))}
+              <div className={styles.skeletonItem} />
+              <div className={styles.skeletonItem} />
+              <div className={styles.skeletonItem} />
             </div>
           ) : (
             <div className={styles.termsGrid}>
-              {filteredTerms.map((term) => (
-                <div key={term.id} className={`${styles.termItem} ${!term.isActive ? styles.termInactive : ''}`}>
-                  <div className={styles.termMain}>
-                    <code className={styles.termWord}>{term.term}</code>
-                    <span className={styles.termMeaning}>{term.meaning}</span>
+              {filteredTerms.map((term) => {
+                const catInfo = CATEGORIES.find((c) => c.value === term.category);
+                const CatIcon = catInfo?.icon || Bookmark;
+                return (
+                  <div key={term.id} className={`${styles.termItem} ${!term.isActive ? styles.termInactive : ''}`}>
+                    <div className={styles.termInfo}>
+                      <code className={styles.termWord}>{term.term}</code>
+                      <span className={styles.termMeaning}>{term.meaning}</span>
+                    </div>
+                    
+                    <div className={styles.termActions}>
+                      <span className={styles.categoryLabel} title={catInfo?.label}>
+                        <CatIcon size={12} />
+                      </span>
+                      
+                      <button
+                        className={styles.iconActionBtn}
+                        onClick={() => handleToggleTerm(term)}
+                        title={term.isActive ? 'Nonaktifkan' : 'Aktifkan'}
+                      >
+                        {term.isActive ? (
+                          <ToggleRight size={20} className={styles.activeToggle} />
+                        ) : (
+                          <ToggleLeft size={20} className={styles.inactiveToggle} />
+                        )}
+                      </button>
+
+                      <button
+                        className={styles.iconActionBtnDanger}
+                        onClick={() => handleDeleteTerm(term)}
+                        title="Hapus Istilah"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
                   </div>
-                  <div className={styles.termActions}>
-                    <span className={`badge badge-muted`} style={{ fontSize: 10 }}>
-                      {CATEGORIES.find((c) => c.value === term.category)?.label ?? term.category}
-                    </span>
-                    <button
-                      className={`btn btn-ghost btn-sm`}
-                      onClick={() => handleToggleTerm(term)}
-                      title={term.isActive ? 'Nonaktifkan' : 'Aktifkan'}
-                    >
-                      {term.isActive ? '✅' : '⭕'}
-                    </button>
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => handleDeleteTerm(term)}
-                      title="Hapus"
-                      style={{ color: 'var(--color-danger)' }}
-                    >
-                      🗑
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>

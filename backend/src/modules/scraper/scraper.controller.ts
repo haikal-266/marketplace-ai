@@ -14,6 +14,8 @@ const ScrapeBodySchema = z.object({
   count: z.number().int().min(1).max(100).optional().default(30),
   headless: z.boolean().optional().default(true),
   details: z.boolean().optional().default(true),
+  minPrice: z.number().int().min(0).optional(),
+  maxPrice: z.number().int().min(0).optional(),
 });
 
 /**

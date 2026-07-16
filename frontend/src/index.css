@@ -7,36 +7,37 @@
 
 /* ─── Design Tokens ─────────────────────────────────────────────────────────── */
 :root {
-  /* Colors — dark mode base */
-  --bg-primary:     #0a0b0e;
-  --bg-secondary:   #111318;
-  --bg-tertiary:    #1a1d24;
-  --bg-card:        #141720;
-  --bg-card-hover:  #1c2030;
-  --bg-glass:       rgba(20, 23, 32, 0.8);
+  /* Colors — Space Indigo, Smart Blue, French Blue, Graphite */
+  --bg-primary:     #090d1b; /* Space Indigo 950 */
+  --bg-secondary:   #0d1226; /* Space Indigo 900 */
+  --bg-tertiary:    #1a254c; /* Space Indigo 800 */
+  --bg-card:        #0d1226; /* Space Indigo 900 */
+  --bg-card-hover:  #161e3d; /* Space Indigo 800 (slightly lighter) */
+  --bg-glass:       rgba(13, 18, 38, 0.85);
 
-  --border-subtle:  rgba(255, 255, 255, 0.06);
-  --border-normal:  rgba(255, 255, 255, 0.10);
-  --border-strong:  rgba(255, 255, 255, 0.18);
+  --border-subtle:  rgba(188, 196, 220, 0.12); /* Smart Blue 200 at low opacity */
+  --border-normal:  rgba(188, 196, 220, 0.25); /* Smart Blue 200 at medium opacity */
+  --border-strong:  rgba(188, 196, 220, 0.4);
+  --border-color:   #bcc4dc; /* Smart Blue 200 */
 
-  /* Brand accent — vibrant indigo-violet */
-  --accent-primary:   #6366f1;
-  --accent-secondary: #8b5cf6;
-  --accent-tertiary:  #a78bfa;
-  --accent-glow:      rgba(99, 102, 241, 0.25);
-  --accent-gradient:  linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a78bfa 100%);
+  /* Brand accent — Premium French Blue */
+  --accent-primary:   #3762c8; /* French Blue 500 */
+  --accent-secondary: #5f82d3; /* French Blue 400 */
+  --accent-tertiary:  #87a1de; /* French Blue 300 */
+  --accent-glow:      rgba(55, 98, 200, 0.15);
+  --accent-gradient:  linear-gradient(135deg, #3762c8 0%, #5f82d3 100%);
 
   /* Semantic colors */
-  --color-success:  #10b981;
-  --color-warning:  #f59e0b;
-  --color-danger:   #ef4444;
-  --color-info:     #3b82f6;
+  --color-success:  #3762c8; /* French Blue 500 */
+  --color-warning:  #576ca8; /* Smart Blue 500 */
+  --color-danger:   #a3988f; /* Graphite 400 */
+  --color-info:     #788aba; /* Smart Blue 400 */
 
   /* Text */
-  --text-primary:   #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted:     #475569;
-  --text-disabled:  #334155;
+  --text-primary:   #eceff8; /* Space Indigo 50 */
+  --text-secondary: #8c7e73; /* Graphite 500 */
+  --text-muted:     #70655c; /* Graphite 600 */
+  --text-disabled:  #544c45; /* Graphite 700 */
 
   /* Typography */
   --font-sans:  'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -55,26 +56,26 @@
   --space-16: 64px;
 
   /* Border radius */
-  --radius-sm:  6px;
-  --radius-md:  10px;
-  --radius-lg:  16px;
-  --radius-xl:  24px;
+  --radius-sm:  4px;
+  --radius-md:  8px;
+  --radius-lg:  12px;
+  --radius-xl:  16px;
   --radius-full: 9999px;
 
   /* Shadows */
-  --shadow-sm:  0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
-  --shadow-md:  0 4px 12px rgba(0,0,0,0.5), 0 2px 4px rgba(0,0,0,0.4);
-  --shadow-lg:  0 10px 30px rgba(0,0,0,0.6), 0 4px 8px rgba(0,0,0,0.5);
-  --shadow-glow: 0 0 20px var(--accent-glow), 0 0 40px rgba(99,102,241,0.1);
+  --shadow-sm:  0 1px 2px rgba(0,0,0,0.15);
+  --shadow-md:  0 4px 16px rgba(0,0,0,0.3);
+  --shadow-lg:  0 12px 32px rgba(0,0,0,0.5);
+  --shadow-glow: none;
 
   /* Transitions */
-  --transition-fast:   150ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow:   400ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-fast:   120ms ease;
+  --transition-normal: 200ms ease;
+  --transition-slow:   300ms ease;
 
   /* Layout */
-  --sidebar-width:    260px;
-  --content-max-width: 1200px;
+  --sidebar-width:    240px;
+  --content-max-width: 1400px;
   --header-height:    64px;
 }
 
@@ -263,7 +264,28 @@ code, pre {
 .input:hover { border-color: var(--border-strong); }
 .input:focus {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  box-shadow: 0 0 0 3px rgba(55, 98, 200, 0.15);
+}
+
+/* Autofill styling override to prevent browser light-blue/yellow backgrounds */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px var(--bg-primary) inset !important;
+  -webkit-text-fill-color: var(--text-primary) !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Hide number input spinner controls globally (Chrome, Safari, Edge, Firefox) */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type=number] {
+  -moz-appearance: textfield;
 }
 
 /* ─── Card Base ─────────────────────────────────────────────────────────────── */
