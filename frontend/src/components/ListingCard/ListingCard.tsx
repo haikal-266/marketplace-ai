@@ -21,6 +21,24 @@ function formatPrice(amount: number): string {
   return `Rp ${amount.toLocaleString('id-ID')}`;
 }
 
+/** Override any listed non-Rupiah currencies to Rupiah (Rp) prefix */
+export function overrideCurrencyToRupiah(priceStr: string | null | undefined): string {
+  if (!priceStr) return 'Hubungi Penjual';
+  let cleaned = priceStr.trim();
+  
+  // Hapus semua currency symbol yang diketahui di depan, lalu ganti dengan Rp
+  const currencyRegex = /^(?:US\$|S\$|SG\$|SGD|\$|RM|RP\.?|RP|IDR)\s*/i;
+  if (currencyRegex.test(cleaned)) {
+    cleaned = cleaned.replace(currencyRegex, 'Rp ');
+  } else {
+    // Jika tidak ada symbol currency tetapi diawali angka/titik, tambahkan Rp di depan
+    if (/^\d/.test(cleaned) || /^\./.test(cleaned)) {
+      cleaned = 'Rp ' + cleaned;
+    }
+  }
+  return cleaned;
+}
+
 /** Highlight search query dalam teks */
 function highlightText(text: string, query: string): React.ReactNode {
   if (!query || !text) return text;
@@ -179,7 +197,7 @@ export default function ListingCard({ listing, searchQuery = '', onClick }: Prop
                       {formatPrice(scaledPrice)}
                     </span>
                     {listedPrice && isPriceFake && (
-                      <span className={styles.clickbaitLabel} title={`Harga tertera: ${listedPrice}`}>
+                      <span className={styles.clickbaitLabel} title={`Harga tertera: ${overrideCurrencyToRupiah(listedPrice)}`}>
                         <ShieldAlert size={10} /> Fake Price
                       </span>
                     )}
@@ -188,7 +206,7 @@ export default function ListingCard({ listing, searchQuery = '', onClick }: Prop
               })()
             ) : listedPrice ? (
               <div className={styles.listedPrice}>
-                <span>{listedPrice}</span>
+                <span>{overrideCurrencyToRupiah(listedPrice)}</span>
               </div>
             ) : (
               <span className={styles.noPrice}>Hubungi Penjual</span>

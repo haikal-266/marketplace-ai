@@ -151,8 +151,9 @@ export class PriceDetectorStage
   private parseListedPrice(raw: string): number | null {
     if (!raw) return null;
 
-    const cleaned = raw
-      .replace(/^(Rp\.?|IDR)\s*/i, '') // Hapus prefix currency
+    // Hapus semua karakter non-digit kecuali titik/koma (misal: US$, $, S$, RM, dll.)
+    const cleanedDigitsOnly = raw.replace(/[^\d.,]/g, '');
+    const cleaned = cleanedDigitsOnly
       .replace(/\./g, '')               // Hapus titik separator ribuan
       .replace(/,/g, '')                // Hapus koma
       .trim();

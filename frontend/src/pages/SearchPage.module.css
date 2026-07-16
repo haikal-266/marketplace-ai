@@ -1151,6 +1151,106 @@
   50% { transform: scale(1.3); opacity: 0.5; }
   100% { transform: scale(0.9); opacity: 1; }
 }
+/* ── Live Monitoring Radar Loader ── */
+.monitoringLoaderContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--space-8) var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--border-normal);
+  border-radius: var(--radius-lg);
+  max-width: 480px;
+  margin: var(--space-8) auto;
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(8px);
+}
+
+.monitoringLoaderContainer h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: var(--space-4) 0 var(--space-1) 0;
+}
+
+.monitoringLoaderContainer p {
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-width: 320px;
+  margin-bottom: var(--space-5);
+  line-height: 1.5;
+}
+
+.radarRing {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  background: rgba(135, 161, 222, 0.08);
+  border: 1px solid rgba(135, 161, 222, 0.25);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.radarPulse {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2px solid var(--accent-primary);
+  animation: radarRipple 1.8s cubic-bezier(0.1, 0.8, 0.3, 1) infinite;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.radarIcon {
+  color: var(--accent-tertiary);
+  animation: pulseIcon 1.8s ease-in-out infinite;
+}
+
+.liveSpinnerBlock {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: 700;
+  color: #34d399;
+}
+
+.livePulseDot {
+  width: 6px;
+  height: 6px;
+  background: #10b981;
+  border-radius: 50%;
+  box-shadow: 0 0 8px #10b981;
+  animation: activePulse 1.2s infinite;
+}
+
+@keyframes radarRipple {
+  0% { transform: scale(0.9); opacity: 0.8; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+@keyframes pulseIcon {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+@keyframes activePulse {
+  0% { transform: scale(0.8); opacity: 0.5; }
+  50% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(0.8); opacity: 0.5; }
+}
 
 /* ── Responsive media queries ── */
 @media (max-width: 1024px) {

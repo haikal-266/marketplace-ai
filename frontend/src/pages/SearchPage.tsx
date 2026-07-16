@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { searchApi, scraperApi } from '../services/api';
 import type { SearchResult, SearchOptions, Listing } from '../types';
-import ListingCard, { hasMinus } from '../components/ListingCard/ListingCard';
+import ListingCard, { hasMinus, overrideCurrencyToRupiah } from '../components/ListingCard/ListingCard';
 import styles from './SearchPage.module.css';
 
 const SORT_OPTIONS = [
@@ -100,6 +100,9 @@ export default function SearchPage() {
   const [isBarter, setIsBarter] = useState<boolean | undefined>(undefined);
   const [isOpenNego, setIsOpenNego] = useState<boolean | undefined>(undefined);
   const [isNoMinus, setIsNoMinus] = useState<boolean | undefined>(undefined);
+  const [isNoService, setIsNoService] = useState<boolean | undefined>(undefined);
+  const [completenessFilter, setCompletenessFilter] = useState<'all' | 'fullset' | 'unit_only'>('all');
+  const [connectivityFilter, setConnectivityFilter] = useState<'all' | 'all_operator' | 'wifi_only'>('all');
 
   // Custom Select state
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
@@ -222,7 +225,7 @@ export default function SearchPage() {
           return {
             ...prev,
             total: prev.total + 1,
-            items: [newListing, ...prev.items],
+            items: [...prev.items, newListing],
           };
         });
       }
@@ -632,6 +635,33 @@ export default function SearchPage() {
                 </div>
               )}
 
+              {isNoService === true && (
+                <div className={styles.filterChip}>
+                  <span>Tanpa Servis</span>
+                  <button className={styles.clearChipBtn} onClick={() => setIsNoService(undefined)}>
+                    <X size={10} />
+                  </button>
+                </div>
+              )}
+
+              {completenessFilter !== 'all' && (
+                <div className={styles.filterChip}>
+                  <span>Kelengkapan: {completenessFilter === 'fullset' ? 'Fullset' : 'Unit Only'}</span>
+                  <button className={styles.clearChipBtn} onClick={() => setCompletenessFilter('all')}>
+                    <X size={10} />
+                  </button>
+                </div>
+              )}
+
+              {connectivityFilter !== 'all' && (
+                <div className={styles.filterChip}>
+                  <span>Konektivitas: {connectivityFilter === 'all_operator' ? 'All Op' : 'WiFi Only'}</span>
+                  <button className={styles.clearChipBtn} onClick={() => setConnectivityFilter('all')}>
+                    <X size={10} />
+                  </button>
+                </div>
+              )}
+
               {results && results.synonymsExpanded.length > 0 && (
                 <div className={styles.filterChipExpanded} title="Keyword diperluas otomatis">
                   <span>Synonyms: {results.synonymsExpanded.slice(0, 2).join(', ')}</span>
@@ -664,8 +694,24 @@ export default function SearchPage() {
               </div>
             )}
 
+            {/* Live Monitoring Loader State (if monitoring is active and we haven't got data yet) */}
+            {!loading && isMonitoring && filteredItems.length === 0 && (
+              <div className={styles.monitoringLoaderContainer}>
+                <div className={styles.radarRing}>
+                  <div className={styles.radarPulse} />
+                  <Search size={32} className={styles.radarIcon} />
+                </div>
+                <h3>Sedang Menyerap Data Live...</h3>
+                <p>{scrapeStatus || 'Menunggu data masuk dari Facebook Marketplace...'}</p>
+                <div className={styles.liveSpinnerBlock}>
+                  <span className={styles.livePulseDot} />
+                  <span>Sistem Aktif & Memindai</span>
+                </div>
+              </div>
+            )}
+
             {/* Empty State: No search query */}
-            {!loading && !results && !error && (
+            {!loading && !isMonitoring && !results && !error && (
               <div className={styles.emptyState}>
                 <div className={styles.emptyIconContainer}>
                   <Search size={32} className={styles.emptyIcon} />
@@ -676,7 +722,7 @@ export default function SearchPage() {
             )}
 
             {/* Empty State: Query has 0 results */}
-            {!loading && results && filteredItems.length === 0 && (
+            {!loading && !isMonitoring && results && filteredItems.length === 0 && (
               <div className={styles.emptyState}>
                 <div className={styles.emptyIconContainer}>
                   <SlidersHorizontal size={32} className={styles.emptyIcon} />
@@ -773,7 +819,7 @@ export default function SearchPage() {
                           </span>
                           {selectedListing.isPriceFake && selectedListing.listedPrice && (
                             <span className={styles.modalRawPriceText}>
-                              Harga Listed Facebook: {selectedListing.listedPrice}
+                              Harga Listed Facebook: {overrideCurrencyToRupiah(selectedListing.listedPrice)}
                             </span>
                           )}
                         </div>
@@ -782,7 +828,7 @@ export default function SearchPage() {
                   ) : selectedListing.listedPrice ? (
                     <div className={styles.modalListedOnlyPrice}>
                       <span className={styles.modalPriceHeading}>Harga Terdaftar</span>
-                      <span className={styles.modalPriceVal}>{selectedListing.listedPrice}</span>
+                      <span className={styles.modalPriceVal}>{overrideCurrencyToRupiah(selectedListing.listedPrice)}</span>
                     </div>
                   ) : (
                     <span className={styles.modalPriceVal}>Hubungi Penjual</span>

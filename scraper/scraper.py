@@ -176,186 +176,178 @@ async def extract_cards(page: Page):
     """)
 
 
-async def scrape_detail(page: Page, url: str) -> dict:
-    """Scrape halaman detail listing untuk mendapatkan data lengkap.
-    Extended dari versi original untuk mengambil: description, posted, delivery.
-    """
+async def extract_detail_from_dom(page: Page) -> dict:
+    """Ekstraksi field detail langsung dari DOM/HTML saat ini."""
     d = {}
-    try:
-        await page.goto(url, wait_until="load", timeout=45000)
-        await S(2, 3); await dismiss(page)
-        # Scroll agresif untuk trigger semua lazy-loaded content
-        for _ in range(5):
-            await page.evaluate(f"window.scrollBy(0, {random.randint(300,700)})")
-            await asyncio.sleep(random.uniform(0.5, 1.0))
-        try: await page.mouse.click(500, 400); await asyncio.sleep(0.5)
-        except: pass
-        await asyncio.sleep(2)
-
-        # ── Meta tags OpenGraph ────────────────────────────────────────────────
-        for sel, attr, key in [
-            ('meta[property="og:title"]', "content", "title"),
-            ('meta[property="og:price:amount"]', "content", "price"),
-            ('meta[property="og:description"]', "content", "og_description"),
-        ]:
+    # ── Meta tags OpenGraph ────────────────────────────────────────────────
+    for sel, attr, key in [
+        ('meta[property="og:title"]', "content", "title"),
+        ('meta[property="og:price:amount"]', "content", "price"),
+        ('meta[property="og:description"]', "content", "og_description"),
+    ]:
+        try:
             el = await page.query_selector(sel)
             if el:
                 v = (await el.get_attribute(attr) or "").strip()
                 if v: d[key] = v
+        except: pass
 
-        # ── Title fallback dari H1 ─────────────────────────────────────────────
-        if not d.get("title"):
-            for sel in ("h1 span", "h1"):
+    # ── Title fallback dari H1 ─────────────────────────────────────────────
+    if not d.get("title"):
+        for sel in ("h1 span", "h1"):
+            try:
                 el = await page.query_selector(sel)
                 if el:
                     v = (await el.text_content() or "").strip()
                     if v and not _price(v) and len(v) > 2: d["title"] = v; break
-
-        # ── Ambil full body text untuk parsing berbagai field ──────────────────
-        full = await page.evaluate("() => document.body.innerText")
-        lines = [l.strip() for l in full.splitlines() if l.strip()]
-
-        # ── Description ────────────────────────────────────────────────────────
-        # Strategi 1: Cari section description via selector
-        for desc_sel in [
-            '[data-testid="marketplace_pdp_description"]',
-            '[data-testid="marketplace_pdp_description"] span',
-            '[data-testid="marketplace-pdp-description"]',
-            '[class*="description"]',
-        ]:
-            try:
-                el = await page.query_selector(desc_sel)
-                if el:
-                    v = (await el.text_content() or "").strip()
-                    if v and len(v) > 20:
-                        d["description"] = v; break
             except: pass
 
-        # Strategi 2: Gunakan og:description jika lebih panjang dari title
-        if not d.get("description") and d.get("og_description"):
-            og_desc = d.pop("og_description", "")
-            parts = og_desc.split(" · ")
-            if len(parts) >= 3:
-                d["description"] = " · ".join(parts[2:])
-            elif len(og_desc) > len(d.get("title", "")) + 15:
-                d["description"] = og_desc
-        elif "og_description" in d:
-            d.pop("og_description", None)
+    # ── Ambil full body text untuk parsing berbagai field ──────────────────
+    try:
+        full = await page.evaluate("() => document.body.innerText")
+    except:
+        full = ""
+    lines = [l.strip() for l in full.splitlines() if l.strip()]
 
-        # Strategi 3: Heuristik dari body text — cari blok setelah header "Detail"
-        if not d.get("description") and lines:
-            detail_idx = -1
-            for idx, line in enumerate(lines):
-                if line.lower() in ("detail", "details", "deskripsi", "description", "rincian"):
-                    detail_idx = idx
-                    break
-            
-            if detail_idx != -1:
-                end_idx = -1
-                LOCATION_LANDMARKS = ("perkiraan lokasi", "location is approximate", "informasi penjual",
-                                      "kirim pesan", "seller information", "send seller", "detail penjual",
-                                      "lindungi pembelian", "peta lokasi", "map location", "seller details")
-                for idx in range(detail_idx + 1, len(lines)):
-                    if any(x in lines[idx].lower() for x in LOCATION_LANDMARKS):
-                        end_idx = idx; break
-                if end_idx == -1:
-                    end_idx = min(detail_idx + 40, len(lines))
-                
-                # Kumpul baris deskripsi, skip label dan nilai kondisi/merek
-                SKIP_LABELS = ("kondisi", "condition", "merek", "brand", "bahan", "material",
-                               "ukuran", "size", "warna", "color", "nama perangkat", "device name")
-                SKIP_VALUES = ("bekas", "baru", "used", "new", "like new", "good", "seperti baru",
-                               "cukup baik", "baik", "rusak")
-                desc_lines = []
-                skip_next = False
-                for idx in range(detail_idx + 1, end_idx):
-                    line = lines[idx]
-                    if skip_next:
-                        skip_next = False; continue
-                    if line.lower() in SKIP_LABELS:
-                        skip_next = True; continue
-                    if any(line.lower().startswith(x + ":") for x in SKIP_LABELS): continue
-                    if any(x in line.lower() for x in (" - ", " – ", " — ")) and any(x in line.lower() for x in SKIP_VALUES): continue
-                    if line.strip().lower() in ("detail", "details", "kondisi", "condition", "rincian"): continue
-                    desc_lines.append(line)
-                
-                if desc_lines:
-                    desc_text = "\n".join(desc_lines).strip()
-                    if len(desc_text) > 10:
-                        d["description"] = desc_text
+    # ── Description ────────────────────────────────────────────────────────
+    # Strategi 1: Cari section description via selector
+    for desc_sel in [
+        '[data-testid="marketplace_pdp_description"]',
+        '[data-testid="marketplace_pdp_description"] span',
+        '[data-testid="marketplace-pdp-description"]',
+        '[class*="description"]',
+    ]:
+        try:
+            el = await page.query_selector(desc_sel)
+            if el:
+                v = (await el.text_content() or "").strip()
+                if v and len(v) > 20:
+                    d["description"] = v; break
+        except: pass
 
-        # Strategi 4: Cari teks setelah nilai kondisi hingga landmark lokasi
-        # Dipakai saat halaman tidak memiliki header "Detail" tersendiri.
-        if not d.get("description") and lines:
-            LOCATION_LANDMARKS = ("perkiraan lokasi", "location is approximate", "informasi penjual",
-                                  "kirim pesan", "seller information", "detail penjual", "seller details")
-            CONDITION_PATTERNS = re.compile(
-                r'^(?:bekas|baru|used|new|like new|good|baik|cukup baik|rusak|seperti baru)'
-                r'(?:\s*[-–—]\s*\w+)?$', re.IGNORECASE
-            )
-            cond_val_idx = -1
-            for idx, line in enumerate(lines):
-                if CONDITION_PATTERNS.match(line.strip()):
-                    cond_val_idx = idx; break
-            
-            if cond_val_idx != -1:
-                end_idx = len(lines)
-                for idx in range(cond_val_idx + 1, len(lines)):
-                    if any(x in lines[idx].lower() for x in LOCATION_LANDMARKS):
-                        end_idx = idx; break
-                
-                # Batasi pencarian tidak terlalu jauh (max 30 baris setelah kondisi)
-                end_idx = min(end_idx, cond_val_idx + 30)
-                desc_lines = [l for l in lines[cond_val_idx + 1:end_idx]
-                              if len(l) > 3 and not _price(l)
-                              and not re.match(r'^(Kirim|Bagikan|Laporkan|Simpan|Beli|Tanya|Like|Follow)', l)
-                              and 'facebook.com' not in l.lower()]
-                if desc_lines:
-                    desc_text = "\n".join(desc_lines).strip()
-                    if len(desc_text) > 10:
-                        d["description"] = desc_text
+    # Strategi 2: Gunakan og:description jika lebih panjang dari title
+    if not d.get("description") and d.get("og_description"):
+        og_desc = d.pop("og_description", "")
+        parts = og_desc.split(" · ")
+        if len(parts) >= 3:
+            d["description"] = " · ".join(parts[2:])
+        elif len(og_desc) > len(d.get("title", "")) + 15:
+            d["description"] = og_desc
+    elif "og_description" in d:
+        d.pop("og_description", None)
 
-        # ── Condition ──────────────────────────────────────────────────────────
-        for i in range(len(lines) - 1):
-            if lines[i].lower() in ("kondisi", "condition"):
-                d["condition"] = lines[i+1].strip()
+    # Strategi 3: Heuristik dari body text — cari blok setelah header "Detail"
+    if not d.get("description") and lines:
+        detail_idx = -1
+        for idx, line in enumerate(lines):
+            if line.lower() in ("detail", "details", "deskripsi", "description", "rincian"):
+                detail_idx = idx
                 break
         
-        if not d.get("condition"):
-            for line in lines:
-                if line.lower().startswith("kondisi:") or line.lower().startswith("condition:"):
-                    d["condition"] = line.split(":", 1)[1].strip()
-                    break
+        if detail_idx != -1:
+            end_idx = -1
+            LOCATION_LANDMARKS = ("perkiraan lokasi", "location is approximate", "informasi penjual",
+                                  "kirim pesan", "seller information", "send seller", "detail penjual",
+                                  "lindungi pembelian", "peta lokasi", "map location", "seller details")
+            for idx in range(detail_idx + 1, len(lines)):
+                if any(x in lines[idx].lower() for x in LOCATION_LANDMARKS):
+                    end_idx = idx; break
+            if end_idx == -1:
+                end_idx = min(detail_idx + 40, len(lines))
+            
+            # Kumpul baris deskripsi, skip label dan nilai kondisi/merek
+            SKIP_LABELS = ("kondisi", "condition", "merek", "brand", "bahan", "material",
+                           "ukuran", "size", "warna", "color", "nama perangkat", "device name")
+            SKIP_VALUES = ("bekas", "baru", "used", "new", "like new", "good", "seperti baru",
+                           "cukup baik", "baik", "rusak")
+            desc_lines = []
+            skip_next = False
+            for idx in range(detail_idx + 1, end_idx):
+                line = lines[idx]
+                if skip_next:
+                    skip_next = False; continue
+                if line.lower() in SKIP_LABELS:
+                    skip_next = True; continue
+                if any(line.lower().startswith(x + ":") for x in SKIP_LABELS): continue
+                if any(x in line.lower() for x in (" - ", " – ", " — ")) and any(x in line.lower() for x in SKIP_VALUES): continue
+                if line.strip().lower() in ("detail", "details", "kondisi", "condition", "rincian"): continue
+                desc_lines.append(line)
+            
+            if desc_lines:
+                desc_text = "\n".join(desc_lines).strip()
+                if len(desc_text) > 10:
+                    d["description"] = desc_text
 
-        # Fallback lama untuk kondisi jika cara di atas gagal
-        if not d.get("condition"):
-            for i in range(len(lines) - 1):
-                key_line = lines[i]; val_line = lines[i+1]
-                if len(key_line) < 10 and len(val_line) < 25 and len(val_line) > 3:
-                    if any(x in val_line for x in ("-", "–", "—")) and all(len(p.strip()) < 15 for p in re.split(r'[-–—]', val_line)) \
-                            and not re.search(r'[🔥🎉🎊⭐💥✅📱😍]', val_line):
-                        d["condition"] = val_line; break
+    # Strategi 4: Cari teks setelah nilai kondisi hingga landmark lokasi
+    if not d.get("description") and lines:
+        LOCATION_LANDMARKS = ("perkiraan lokasi", "location is approximate", "informasi penjual",
+                              "kirim pesan", "seller information", "detail penjual", "seller details")
+        CONDITION_PATTERNS = re.compile(
+            r'^(?:bekas|baru|used|new|like new|good|baik|cukup baik|rusak|seperti baru)'
+            r'(?:\s*[-–—]\s*\w+)?$', re.IGNORECASE
+        )
+        cond_val_idx = -1
+        for idx, line in enumerate(lines):
+            if CONDITION_PATTERNS.match(line.strip()):
+                cond_val_idx = idx; break
+        
+        if cond_val_idx != -1:
+            end_idx = len(lines)
+            for idx in range(cond_val_idx + 1, len(lines)):
+                if any(x in lines[idx].lower() for x in LOCATION_LANDMARKS):
+                    end_idx = idx; break
+            
+            end_idx = min(end_idx, cond_val_idx + 30)
+            desc_lines = [l for l in lines[cond_val_idx + 1:end_idx]
+                          if len(l) > 3 and not _price(l)
+                          and not re.match(r'^(Kirim|Bagikan|Laporkan|Simpan|Beli|Tanya|Like|Follow)', l)
+                          and 'facebook.com' not in l.lower()]
+            if desc_lines:
+                desc_text = "\n".join(desc_lines).strip()
+                if len(desc_text) > 10:
+                    d["description"] = desc_text
 
-        # ── Posted time: cari teks waktu relatif ──────────────────────────────
-        TIME_PATTERNS = [
-            r'\d+\s+(?:menit|jam|hari|minggu|bulan|tahun)\s+(?:yang\s+lalu|lalu)',
-            r'(?:Kemarin|Hari\s+ini)(?:\s+pukul\s+[\d:]+)?',
-            r'\d+\s+(?:minute|hour|day|week|month|year)s?\s+ago',
-            r'(?:Yesterday|Today)(?:\s+at\s+[\d:]+\s*(?:AM|PM)?)?',
-        ]
+    # ── Condition ──────────────────────────────────────────────────────────
+    for i in range(len(lines) - 1):
+        if lines[i].lower() in ("kondisi", "condition"):
+            d["condition"] = lines[i+1].strip()
+            break
+    
+    if not d.get("condition"):
         for line in lines:
-            for pat in TIME_PATTERNS:
-                if re.search(pat, line, re.IGNORECASE):
-                    d["posted"] = line.strip(); break
-            if d.get("posted"): break
+            if line.lower().startswith("kondisi:") or line.lower().startswith("condition:"):
+                d["condition"] = line.split(":", 1)[1].strip()
+                break
 
-        # ── Delivery: cari info pengiriman ────────────────────────────────────
-        DELIVERY_KEYWORDS = ['dikirim dari', 'pengiriman', 'delivery', 'ongkir', 'cod', 'antar']
-        for line in lines:
-            if any(kw in line.lower() for kw in DELIVERY_KEYWORDS) and len(line) < 80:
-                d["delivery"] = line.strip(); break
+    if not d.get("condition"):
+        for i in range(len(lines) - 1):
+            key_line = lines[i]; val_line = lines[i+1]
+            if len(key_line) < 10 and len(val_line) < 25 and len(val_line) > 3:
+                if any(x in val_line for x in ("-", "–", "—")) and all(len(p.strip()) < 15 for p in re.split(r'[-–—]', val_line)) \
+                        and not re.search(r'[🔥🎉🎊⭐💥✅📱😍]', val_line):
+                    d["condition"] = val_line; break
 
-        # ── Seller dari link profile ───────────────────────────────────────────
+    # ── Posted time ──────────────────────────────────────────────────────
+    TIME_PATTERNS = [
+        r'\d+\s+(?:menit|jam|hari|minggu|bulan|tahun)\s+(?:yang\s+lalu|lalu)',
+        r'(?:Kemarin|Hari\s+ini)(?:\s+pukul\s+[\d:]+)?',
+        r'\d+\s+(?:minute|hour|day|week|month|year)s?\s+ago',
+        r'(?:Yesterday|Today)(?:\s+at\s+[\d:]+\s*(?:AM|PM)?)?',
+    ]
+    for line in lines:
+        for pat in TIME_PATTERNS:
+            if re.search(pat, line, re.IGNORECASE):
+                d["posted"] = line.strip(); break
+        if d.get("posted"): break
+
+    # ── Delivery ──────────────────────────────────────────────────────────
+    DELIVERY_KEYWORDS = ['dikirim dari', 'pengiriman', 'delivery', 'ongkir', 'cod', 'antar']
+    for line in lines:
+        if any(kw in line.lower() for kw in DELIVERY_KEYWORDS) and len(line) < 80:
+            d["delivery"] = line.strip(); break
+
+    # ── Seller dari link profile ───────────────────────────────────────────
+    try:
         profile_links = await page.query_selector_all('a[href*="/marketplace/profile/"]')
         found_first = False
         for link in profile_links:
@@ -364,17 +356,168 @@ async def scrape_detail(page: Page, url: str) -> dict:
                 if not found_first: found_first = True; continue
                 d["seller"] = name
                 d["seller_url"] = await link.get_attribute("href") or ""; break
+    except: pass
 
-        # Fallback seller dari body text
-        if not d.get("seller"):
-            for i in range(len(lines) - 1):
-                if lines[i].lower() in ("detail penjual", "seller details"):
-                    d["seller"] = lines[i+1].strip()
+    # Fallback seller dari body text
+    if not d.get("seller"):
+        for i in range(len(lines) - 1):
+            if lines[i].lower() in ("detail penjual", "seller details"):
+                d["seller"] = lines[i+1].strip()
+                break
+
+    return d
+
+
+async def scrape_detail(page: Page, url: str) -> dict:
+    """Scrape halaman detail listing untuk mendapatkan data lengkap.
+    Strategi 3-tier:
+      Tier 0: Intercept GraphQL response dari Facebook API (tercepat, paling andal)
+      Tier 1: Early DOM extraction setelah domcontentloaded
+      Tier 2: Scroll fallback + re-extract
+    """
+    d = {}
+    captured_desc = ""
+
+    # ── Tier 0: GraphQL Response Interception ──────────────────────────────
+    # Facebook memuat data produk via GraphQL API. Kita tangkap response-nya
+    # langsung saat browser melakukan fetch, tanpa perlu parsing DOM.
+    async def capture_graphql(response):
+        nonlocal captured_desc
+        try:
+            resp_url = response.url
+            if "graphql" not in resp_url and "api/graphql" not in resp_url:
+                return
+            if response.status != 200:
+                return
+            ct = response.headers.get("content-type", "")
+            if "json" not in ct and "text" not in ct:
+                return
+            body = await response.text()
+            if not body or len(body) < 200:
+                return
+            # Cari deskripsi di dalam response body
+            desc_patterns = [
+                r'"redacted_description"\s*:\s*\{[^}]*"text"\s*:\s*"([^"]{10,})"',
+                r'"description"\s*:\s*\{[^}]*"text"\s*:\s*"([^"]{10,})"',
+                r'"body"\s*:\s*\{[^}]*"text"\s*:\s*"([^"]{10,})"',
+                r'"marketplace_listing_renderable_target"\s*:\s*\{[^}]*"redacted_description"\s*:\s*\{[^}]*"text"\s*:\s*"([^"]{10,})"',
+            ]
+            for pat in desc_patterns:
+                m = re.search(pat, body)
+                if m and not captured_desc:
+                    raw = m.group(1)
+                    # Decode unicode escapes (Facebook sering encode \n, \u00xx, dll)
+                    try:
+                        raw = raw.encode().decode('unicode_escape')
+                    except:
+                        pass
+                    captured_desc = raw.strip()
                     break
+        except:
+            pass
+
+    try:
+        # Intercept resources + GraphQL capture
+        async def block_resources(route):
+            if route.request.resource_type in ("image", "font", "media"):
+                await route.abort()
+            else:
+                await route.continue_()
+        await page.route("**/*", block_resources)
+        page.on("response", capture_graphql)
+
+        # Load halaman
+        await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+
+        # Tunggu: beri waktu GraphQL response masuk + DOM hydrate
+        try:
+            await page.wait_for_selector(
+                '[data-testid="marketplace_pdp_description"]', timeout=5000)
+        except:
+            # Bahkan kalau selector timeout, GraphQL mungkin sudah tertangkap
+            await asyncio.sleep(1.5)
+
+        # ── Tier 1: Early DOM extraction ──────────────────────────────────
+        d = await extract_detail_from_dom(page)
+
+        # Gunakan GraphQL captured desc jika DOM tidak punya
+        if captured_desc and (not d.get("description") or len(captured_desc) > len(d.get("description", ""))):
+            d["description"] = captured_desc
+
+        if d.get("description") and len(d["description"]) > 20:
+            return d
+
+        # ── Tier 2: Scroll fallback (lebih agresif) ───────────────────────
+        await dismiss(page)
+        for _ in range(4):
+            await page.evaluate(f"window.scrollBy(0, {random.randint(300, 600)})")
+            await asyncio.sleep(random.uniform(0.4, 0.8))
+
+        # Tunggu sebentar agar lazy-loaded content muncul
+        await asyncio.sleep(1.5)
+
+        # Klik area konten untuk memicu rendering yang mungkin tertunda
+        try:
+            await page.mouse.click(400, 350)
+            await asyncio.sleep(0.5)
+        except:
+            pass
+
+        # Ekstraksi ulang
+        d2 = await extract_detail_from_dom(page)
+        d.update({k: v for k, v in d2.items() if v})
+
+        # Cek ulang GraphQL capture (mungkin baru masuk setelah scroll)
+        if captured_desc and (not d.get("description") or len(captured_desc) > len(d.get("description", ""))):
+            d["description"] = captured_desc
 
     except Exception as e:
-        pass  # Error ter-suppress — jangan crash pipeline karena 1 listing
+        pass
+    finally:
+        try:
+            page.remove_listener("response", capture_graphql)
+        except:
+            pass
     return d
+
+
+async def detail_worker(queue: asyncio.Queue, ctx, cfg):
+    """Worker background untuk memproses detail scraping tanpa memblokir loop utama.
+    Selalu emit hasilnya — baik dengan atau tanpa deskripsi — agar pipeline
+    tetap bisa memproses field lainnya (seller, condition, dll).
+    """
+    while True:
+        l = await queue.get()
+        try:
+            p2 = await ctx.new_page()
+            try:
+                d = await scrape_detail(p2, l.url)
+                if d.get("title") and len(d.get("title","")) > len(l.title or ""): l.title = d["title"]
+                if d.get("price") and len(d.get("price","")) > len(l.price or ""): l.price = d["price"]
+                if d.get("location") and l.location != d["location"]: l.location = d["location"]
+                if d.get("seller"): l.seller = d["seller"]
+                if d.get("seller_url"): l.seller_url = d["seller_url"]
+                if d.get("posted"): l.posted = d["posted"]
+                if d.get("condition"): l.condition = d["condition"]
+                if d.get("description"): l.description = d["description"]
+                if d.get("delivery"): l.delivery = d["delivery"]
+            except Exception as e:
+                pass
+            finally:
+                await p2.close()
+
+            # Selalu emit — pipeline tetap bisa analisis title, price, dll
+            if cfg.api_mode:
+                print(json.dumps(l.to_dict(), ensure_ascii=False), flush=True)
+            else:
+                has_desc = bool(l.description)
+                tag = "[DETAIL]" if has_desc else "[DETAIL-NO-DESC]"
+                t = l.title[:45] if l.title else "-"
+                print(f"{tag} {t:45s} {l.price:15s} {l.location}")
+        except Exception as e:
+            pass
+        finally:
+            queue.task_done()
 
 
 async def run(cfg=None):
@@ -382,6 +525,9 @@ async def run(cfg=None):
     cfg.max_detail_pages = cfg.max_listings
     
     seen_urls = set()
+    detail_queue = asyncio.Queue()
+    workers = []
+    queued_count = 0
 
     async with async_playwright() as p:
         br, ctx, fp = await mkctx(p, cfg)
@@ -407,6 +553,12 @@ async def run(cfg=None):
             await human_mouse(page, random.randint(200, 600), random.randint(100, 400))
             try: await page.wait_for_selector(CARD_LINK, timeout=20000)
             except: pass
+
+            # Jalankan worker detail di latar belakang
+            if cfg.scrape_details:
+                for _ in range(2):
+                    task = asyncio.create_task(detail_worker(detail_queue, ctx, cfg))
+                    workers.append(task)
 
             prev_len = 0
             stall = 0
@@ -447,8 +599,8 @@ async def run(cfg=None):
                             seen_urls.add(url)
                             new_listings.append(l)
 
-                    # Jika tidak ada detail scraping, emit langsung (non-details mode)
-                    if not cfg.scrape_details:
+                    # Emit listing instan (baik mode detail maupun non-detail)
+                    if new_listings:
                         for l in new_listings:
                             if cfg.api_mode:
                                 print(json.dumps(l.to_dict(), ensure_ascii=False), flush=True)
@@ -456,42 +608,13 @@ async def run(cfg=None):
                                 t = l.title[:45] if l.title else "-"
                                 print(f"[NEW] {t:45s} {l.price:15s} {l.location}")
 
-                    # Detail pages: scrape dulu, baru emit
-                    # Listing hanya di-emit setelah detail page selesai dikunjungi
-                    # agar description tersedia untuk deteksi barter/TT yang akurat.
-                    if cfg.scrape_details and new_listings:
-                        to_detail = new_listings[:min(len(new_listings), cfg.max_detail_pages)]
-                        sem = asyncio.Semaphore(2)
-                        async def _detail(l):
-                            async with sem:
-                                p2 = await ctx.new_page()
-                                try:
-                                    d = await scrape_detail(p2, l.url)
-                                    if d.get("title") and len(d.get("title","")) > len(l.title or ""): l.title = d["title"]
-                                    if d.get("price") and len(d.get("price","")) > len(l.price or ""): l.price = d["price"]
-                                    if d.get("location") and l.location != d["location"]: l.location = d["location"]
-                                    if d.get("seller"): l.seller = d["seller"]
-                                    if d.get("seller_url"): l.seller_url = d["seller_url"]
-                                    if d.get("posted"): l.posted = d["posted"]
-                                    if d.get("condition"): l.condition = d["condition"]
-                                    if d.get("description"): l.description = d["description"]
-                                    if d.get("delivery"): l.delivery = d["delivery"]
-                                except: pass
-                                finally: await p2.close()
-                                # Hanya emit jika deskripsi berhasil diambil.
-                                # Listing tanpa deskripsi tidak ditampilkan di UI
-                                # agar filter barter/TT bisa bekerja dengan akurat.
-                                if l.description:
-                                    if cfg.api_mode:
-                                        print(json.dumps(l.to_dict(), ensure_ascii=False), flush=True)
-                                    else:
-                                        t = l.title[:45] if l.title else "-"
-                                        print(f"[DETAIL] {t:45s} {l.price:15s} {l.location}")
-                                else:
-                                    if not cfg.api_mode:
-                                        t = l.title[:45] if l.title else "-"
-                                        print(f"[SKIP-NO-DESC] {t:45s} {l.price:15s} {l.location}")
-                        await asyncio.gather(*[_detail(l) for l in to_detail])
+                    # Masukkan ke antrean detail di latar belakang
+                    if cfg.scrape_details and new_listings and queued_count < cfg.max_detail_pages:
+                        slots = cfg.max_detail_pages - queued_count
+                        to_queue = new_listings[:min(len(new_listings), slots)]
+                        for l in to_queue:
+                            await detail_queue.put(l)
+                            queued_count += 1
 
                     if stall >= 4:
                         if cfg.api_mode:
@@ -506,6 +629,13 @@ async def run(cfg=None):
                     if not cfg.api_mode:
                         print(f"Exception in scraper loop: {e}")
         finally:
+            if cfg.scrape_details:
+                if not cfg.api_mode and detail_queue.qsize() > 0:
+                    print(f"Menunggu {detail_queue.qsize()} tugas detail scraping di latar belakang selesai...")
+                await detail_queue.join()
+                for task in workers:
+                    task.cancel()
+                await asyncio.gather(*workers, return_exceptions=True)
             try: await ctx.close()
             except: pass
             try: await br.close()
@@ -514,6 +644,10 @@ async def run(cfg=None):
 
 if __name__ == "__main__":
     import sys
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except AttributeError:
+        pass
     cookies_path = None
     min_price = 0
     max_price = 0
