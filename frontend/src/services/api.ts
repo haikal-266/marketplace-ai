@@ -51,6 +51,9 @@ export const scraperApi = {
       error?: string;
       options?: ScrapeOptions;
     }>('/scrape/status'),
+
+  stop: () =>
+    request<{ success: boolean; message: string }>('/scrape/stop', { method: 'POST' }),
 };
 
 // ─── Search ───────────────────────────────────────────────────────────────────

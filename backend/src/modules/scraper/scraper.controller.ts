@@ -43,50 +43,69 @@ router.post(
 );
 
 /**
- * GET /api/scrape/status
- * Cek status scraping job yang sedang berjalan.
- * Jika status = done, otomatis jalankan pipeline untuk memproses hasil.
+ * POST /api/scrape/stop
+ * Menghentikan proses scraping yang sedang berjalan.
  */
-router.get(
-  '/status',
+router.post(
+  '/stop',
   asyncHandler(async (_req, res) => {
-    const job = scraperService.getStatus();
-
-    if (!job) {
-      return res.json({ success: true, data: { status: 'idle' } });
-    }
-
-    // Jika done, ambil result dan proses via pipeline
-    if (job.status === 'done') {
-      const rawListings = scraperService.popResult();
-
-      if (rawListings && rawListings.length > 0) {
-        log.info('Memproses hasil scraping via pipeline', { count: rawListings.length });
-
-        // Proses pipeline async — tidak tunggu selesai
-        (async () => {
-          try {
-            const pipeline = await buildPipeline();
-            const processed = await pipeline.runBatch(rawListings);
-            log.info('Pipeline selesai', { processed: processed.length });
-          } catch (err) {
-            log.error('Pipeline gagal', err);
-          }
-        })();
-      }
-    }
-
-    res.json({
-      success: true,
-      data: {
-        status: job.status,
-        startedAt: job.startedAt,
-        options: job.options,
-        totalFound: job.totalFound,
-        error: job.error,
-      },
-    });
+    await scraperService.stopScrape();
+    res.json({ success: true, message: 'Scraping dihentikan' });
   })
 );
+
+/**
+ * GET /api/scrape/stream
+ * Endpoint SSE untuk menerima data scraping secara real-time.
+ */
+router.get('/stream', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  });
+
+  const sendEvent = (event: string, data: any) => {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  sendEvent('status', { status: 'connected' });
+
+  // Handle incoming listings from Python scraper
+  const onListing = async (rawListing: any) => {
+    try {
+      // Build pipeline on the fly (optimally, we'd cache it, but this is fine for now)
+      const pipeline = await buildPipeline();
+      const processed = await pipeline.run(rawListing);
+      
+      // Kirim hasil processed (yang udah di-upsert ke DB) ke UI
+      sendEvent('listing', processed);
+    } catch (err) {
+      log.error('Pipeline gagal untuk 1 listing', err);
+    }
+  };
+
+  const onDone = () => {
+    sendEvent('status', { status: 'done' });
+    res.end();
+  };
+
+  const onExhausted = () => {
+    sendEvent('status', { status: 'exhausted' });
+  };
+
+  scraperService.on('listing', onListing);
+  scraperService.on('done', onDone);
+  scraperService.on('exhausted', onExhausted);
+
+  // Client disconnects
+  req.on('close', () => {
+    scraperService.off('listing', onListing);
+    scraperService.off('done', onDone);
+    scraperService.off('exhausted', onExhausted);
+    log.info('Client terputus dari stream SSE');
+  });
+});
 
 export default router;

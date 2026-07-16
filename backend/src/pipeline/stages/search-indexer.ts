@@ -23,8 +23,7 @@ export class SearchIndexerStage
   name = 'SearchIndexer';
 
   async process(input: ProcessedListing): Promise<ProcessedListing> {
-    await this.upsertListing(input);
-    return input;
+    return await this.upsertListing(input) as any;
   }
 
   /**
@@ -32,9 +31,9 @@ export class SearchIndexerStage
    * URL adalah unique key — jika listing sudah ada, data di-update.
    * Ini memastikan scraping berulang tidak menghasilkan duplikat.
    */
-  private async upsertListing(listing: ProcessedListing): Promise<void> {
+  private async upsertListing(listing: ProcessedListing): Promise<any> {
     try {
-      await prisma.listing.upsert({
+      const saved = await prisma.listing.upsert({
         where: { url: listing.url },
         update: {
           title: listing.title || undefined,
@@ -88,6 +87,7 @@ export class SearchIndexerStage
       });
 
       log.debug('Listing berhasil di-upsert', { url: listing.url });
+      return saved;
     } catch (err) {
       log.error('Gagal upsert listing', { url: listing.url, err });
       throw err;

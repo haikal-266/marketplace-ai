@@ -17,8 +17,9 @@ export default function SearchPage() {
   const [results, setResults] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [scrapeLoading, setScrapeLoading] = useState(false);
+  const [isMonitoring, setIsMonitoring] = useState(false);
   const [scrapeStatus, setScrapeStatus] = useState<string | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   // Filters
   const [sortBy, setSortBy] = useState<SearchOptions['sortBy']>('relevance');
@@ -28,23 +29,40 @@ export default function SearchPage() {
   const [location, setLocation] = useState('');
   const [isBarter, setIsBarter] = useState<boolean | undefined>(undefined);
 
-  const [currentPage, setCurrentPage] = useState(1);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const handleSearch = useCallback(async (page = 1) => {
+  const stopMonitoring = useCallback(async () => {
+    setIsMonitoring(false);
+    setScrapeStatus('Dihentikan.');
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    try {
+      await scraperApi.stop();
+    } catch (e) {}
+  }, []);
+
+  const startMonitoring = useCallback(async () => {
     const q = query.trim();
     if (!q) return;
 
+    if (isMonitoring) {
+      return stopMonitoring();
+    }
+
     setLoading(true);
     setError(null);
-    setCurrentPage(page);
+    setIsMonitoring(true);
+    setScrapeStatus('Mencari data lama...');
 
+    // 1. Ambil data dari database dulu
     try {
       const opts: SearchOptions = {
         q,
         sortBy,
-        page,
-        limit: 20,
+        page: 1,
+        limit: 100, // Show more initially since we won't have pagination easily with stream
         excludeFakePrice: excludeFakePrice || undefined,
         location: location || undefined,
         minPrice: minPrice ? Number.parseInt(minPrice, 10) : undefined,
@@ -54,55 +72,84 @@ export default function SearchPage() {
       const data = await searchApi.search(opts);
       setResults(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal melakukan pencarian');
+      setError(err instanceof Error ? err.message : 'Gagal mencari data');
     } finally {
       setLoading(false);
     }
-  }, [query, sortBy, excludeFakePrice, location, minPrice, maxPrice, isBarter]);
 
-  const handleScrapeAndSearch = useCallback(async () => {
-    const q = query.trim();
-    if (!q) return;
-
-    setScrapeLoading(true);
-    setScrapeStatus('Memulai scraping...');
-
+    // 2. Mulai scraper
+    setScrapeStatus('Memulai live scraping...');
     try {
-      await scraperApi.start({ query: q, count: 30, details: false });
-
-      // Poll status
-      const poll = setInterval(async () => {
-        try {
-          const status = await scraperApi.status();
-          if (status.status === 'done') {
-            clearInterval(poll);
-            setScrapeStatus(`✅ ${status.totalFound ?? 0} listing berhasil diambil!`);
-            setScrapeLoading(false);
-            // Langsung search setelah scraping selesai
-            setTimeout(() => {
-              handleSearch(1);
-              setScrapeStatus(null);
-            }, 1500);
-          } else if (status.status === 'failed') {
-            clearInterval(poll);
-            setScrapeStatus(`❌ Scraping gagal: ${status.error}`);
-            setScrapeLoading(false);
-          } else {
-            setScrapeStatus('⏳ Scraping berjalan...');
-          }
-        } catch {
-          clearInterval(poll);
-          setScrapeLoading(false);
-        }
-      }, 3000);
+      await scraperApi.start({ query: q, count: 100, details: false, city: location });
     } catch (err) {
-      setScrapeStatus(`❌ ${err instanceof Error ? err.message : 'Gagal memulai scraping'}`);
-      setScrapeLoading(false);
+      setScrapeStatus(`❌ ${err instanceof Error ? err.message : 'Gagal memulai scraper'}`);
+      setIsMonitoring(false);
+      return;
     }
-  }, [query, handleSearch]);
+
+    // 3. Connect ke SSE untuk live data
+    const sse = new EventSource('/api/scrape/stream');
+    eventSourceRef.current = sse;
+
+    sse.addEventListener('status', (e) => {
+      const data = JSON.parse(e.data);
+      if (data.status === 'connected') {
+        setScrapeStatus('🟢 Live monitoring berjalan...');
+      } else if (data.status === 'done') {
+        setScrapeStatus('✅ Scraper selesai.');
+        setIsMonitoring(false);
+        sse.close();
+      } else if (data.status === 'exhausted') {
+        setScrapeStatus('ℹ️ Semua produk telah habis diserap.');
+        alert('Semua produk di Facebook Marketplace untuk pencarian ini sudah habis/terserap!');
+        stopMonitoring();
+      }
+    });
+
+    sse.addEventListener('listing', (e) => {
+      const newListing = JSON.parse(e.data) as any;
+      // Filter the incoming listing dynamically to see if it matches UI filters
+      // (The backend pipeline already checks dictionary, but UI filters like price/location are applied here)
+      let pass = true;
+      if (excludeFakePrice && newListing.isPriceFake) pass = false;
+      const actPrice = newListing.actualPriceAmount;
+      if (minPrice && (actPrice === null || actPrice === undefined || actPrice < Number.parseInt(minPrice, 10))) pass = false;
+      if (maxPrice && (actPrice === null || actPrice === undefined || actPrice > Number.parseInt(maxPrice, 10))) pass = false;
+      if (location && (!newListing.location || newListing.location.toLowerCase().indexOf(location.toLowerCase()) === -1)) pass = false;
+      
+      if (pass) {
+        setResults((prev) => {
+          if (!prev) {
+            return {
+              items: [newListing],
+              total: 1,
+              page: 1,
+              limit: 100,
+              query: query,
+              synonymsExpanded: [],
+            };
+          }
+          // Avoid duplicate display
+          if (prev.items.find((i) => i.id === newListing.id)) return prev;
+          return {
+            ...prev,
+            total: prev.total + 1,
+            items: [newListing, ...prev.items],
+          };
+        });
+      }
+    });
+
+    sse.onerror = () => {
+      setScrapeStatus('❌ Koneksi live terputus.');
+      setIsMonitoring(false);
+      sse.close();
+    };
+
+  }, [query, sortBy, excludeFakePrice, location, minPrice, maxPrice, isBarter, isMonitoring, stopMonitoring]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handleSearch(1);
+    if (e.key === 'Enter') startMonitoring();
   };
 
   return (
@@ -144,19 +191,11 @@ export default function SearchPage() {
             </button>
           )}
           <button
-            className={`btn btn-primary ${styles.searchBtn}`}
-            onClick={() => handleSearch(1)}
-            disabled={!query.trim() || loading}
+            className={`btn ${isMonitoring ? 'btn-secondary' : 'btn-primary'} ${styles.searchBtn}`}
+            onClick={startMonitoring}
+            disabled={!query.trim()}
           >
-            {loading ? <span className="spinner" /> : 'Cari'}
-          </button>
-          <button
-            className={`btn btn-secondary ${styles.scrapeBtn}`}
-            onClick={handleScrapeAndSearch}
-            disabled={!query.trim() || scrapeLoading}
-            title="Ambil listing baru dari Facebook lalu cari"
-          >
-            {scrapeLoading ? <span className="spinner" /> : '🕷 Scrape'}
+            {isMonitoring ? '🛑 Stop Monitoring' : (loading ? <span className="spinner" /> : '📡 Mulai Monitoring')}
           </button>
         </div>
 
@@ -255,7 +294,7 @@ export default function SearchPage() {
               )}
             </span>
             <span className={styles.pageInfo}>
-              Halaman {currentPage} dari {Math.ceil(results.total / 20)}
+              {isMonitoring ? '🔴 LIVE STREAM' : `Menampilkan 100 terbaru`}
             </span>
           </div>
         )}
@@ -281,7 +320,7 @@ export default function SearchPage() {
           <div className="empty-state">
             <div style={{ fontSize: 64 }}>🔎</div>
             <h3>Tidak ada listing ditemukan</h3>
-            <p>Coba keyword yang berbeda, atau klik 🕷 Scrape untuk mengambil data baru dari Facebook.</p>
+            <p>Coba keyword yang berbeda, atau klik 📡 Mulai Monitoring untuk mencari data baru secara live.</p>
           </div>
         )}
 
@@ -308,28 +347,6 @@ export default function SearchPage() {
               ))}
             </div>
 
-            {/* Pagination */}
-            {results.total > 20 && (
-              <div className={styles.pagination}>
-                <button
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => handleSearch(currentPage - 1)}
-                  disabled={currentPage === 1}
-                >
-                  ← Prev
-                </button>
-                <span className={styles.pageNum}>
-                  {currentPage} / {Math.ceil(results.total / 20)}
-                </span>
-                <button
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => handleSearch(currentPage + 1)}
-                  disabled={currentPage >= Math.ceil(results.total / 20)}
-                >
-                  Next →
-                </button>
-              </div>
-            )}
           </>
         )}
       </div>

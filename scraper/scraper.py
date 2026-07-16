@@ -306,7 +306,8 @@ async def scrape_detail(page: Page, url: str) -> dict:
 
 async def run(cfg=None):
     if cfg is None: cfg = ScraperConfig()
-    store = DataStore(cfg.output_dir)
+    
+    seen_urls = set()
 
     async with async_playwright() as p:
         ctx, fp = await mkctx(p, cfg)
@@ -325,86 +326,96 @@ async def run(cfg=None):
             except Exception as e:
                 await asyncio.sleep(2**attempt*3)
         else:
-            await ctx.close(); return store
+            await ctx.close(); return
 
         await dismiss(page)
         await human_mouse(page, random.randint(200, 600), random.randint(100, 400))
         try: await page.wait_for_selector(CARD_LINK, timeout=20000)
         except: pass
 
-        await scroll_load(page, cfg)
+        prev_len = 0
+        stall = 0
 
-        raw = await extract_cards(page)
-        listings = []
-        for item in raw[:cfg.max_listings]:
-            info = parse_card(item.get("txt", []), item.get("aria", ""))
-            price = info["price"]
-            if price and len(price) > 50:
-                title_part = re.split(r'\s*(?:Rp|IDR|[$€£¥])\s*[0-9]', price)[0].strip()
-                if title_part and not info["title"]:
-                    info["title"] = title_part
-                m = re.search(r'(?:Rp|IDR|[$€£¥])\s*[0-9][0-9.,]*\s*$', price)
-                if m: price = m.group().strip()
-            if price and len(price) < 40:
-                parts = re.split(r'(?<=[0-9])(?=[R][p])|(?<=[0-9])(?=[$€£¥])', price)
-                price = parts[0].strip()
-            url = item["url"].split("?ref=")[0]
-            l = Listing(title=info["title"], price=price, location=info["location"],
-                        posted=info.get("posted",""), url=url, image_url=item["image_url"])
-            if l.title: l.title = l.title.replace("+", " ").replace("  ", " ").strip()
-            if l.title or l.price: listings.append(l)
+        while True:
+            try:
+                await human_scroll(page)
+                await asyncio.sleep(random.uniform(0.5, 1.2))
+                
+                raw = await extract_cards(page)
+                cur_len = len(raw)
+                if cur_len == prev_len: stall += 1
+                else: stall = 0
+                prev_len = cur_len
 
-        sem = asyncio.Semaphore(3)
-        async def _detail(l):
-            async with sem:
-                p2 = await ctx.new_page()
-                try:
-                    d = await scrape_detail(p2, l.url)
-                    if d.get("title") and len(d.get("title","")) > len(l.title or ""): l.title = d["title"]
-                    if d.get("price") and len(d.get("price","")) > len(l.price or ""): l.price = d["price"]
-                    if d.get("location"): l.location = d["location"]
-                    if d.get("seller"): l.seller = d["seller"]
-                    if d.get("seller_url"): l.seller_url = d.get("seller_url", "")
-                    if d.get("posted"): l.posted = d["posted"]
-                    if d.get("condition"): l.condition = d["condition"]
-                    if d.get("description"): l.description = d["description"]
-                    if d.get("delivery"): l.delivery = d["delivery"]
-                except: pass
-                finally: await p2.close()
+                new_listings = []
+                for item in raw:
+                    url = item["url"].split("?ref=")[0]
+                    if url in seen_urls: continue
+                    
+                    info = parse_card(item.get("txt", []), item.get("aria", ""))
+                    price = info["price"]
+                    if price and len(price) > 50:
+                        title_part = re.split(r'\s*(?:Rp|IDR|[$€£¥])\s*[0-9]', price)[0].strip()
+                        if title_part and not info["title"]:
+                            info["title"] = title_part
+                        m = re.search(r'(?:Rp|IDR|[$€£¥])\s*[0-9][0-9.,]*\s*$', price)
+                        if m: price = m.group().strip()
+                    if price and len(price) < 40:
+                        parts = re.split(r'(?<=[0-9])(?=[R][p])|(?<=[0-9])(?=[$€£¥])', price)
+                        price = parts[0].strip()
+                    
+                    l = Listing(title=info["title"], price=price, location=info["location"],
+                                posted=info.get("posted",""), url=url, image_url=item["image_url"])
+                    if l.title: l.title = l.title.replace("+", " ").replace("  ", " ").strip()
+                    
+                    if l.title or l.price:
+                        seen_urls.add(url)
+                        new_listings.append(l)
 
-        # Tentukan listing mana yang perlu detail scraping
-        if cfg.scrape_details:
-            # Mode --details: ambil semua listing sampai max_detail_pages
-            to_detail = listings[:min(len(listings), cfg.max_detail_pages)]
-        else:
-            # Mode normal: hanya listing yang judulnya pendek/kosong (fallback)
-            to_detail = [l for l in listings if not l.title or (len(l.title) <= 18 and not _has_number(l.title))]
-            to_detail = to_detail[:5]  # max 5 fallback detail pages
+                # Optional detail pages
+                if cfg.scrape_details and new_listings:
+                    to_detail = new_listings[:min(len(new_listings), cfg.max_detail_pages)]
+                    sem = asyncio.Semaphore(3)
+                    async def _detail(l):
+                        async with sem:
+                            p2 = await ctx.new_page()
+                            try:
+                                d = await scrape_detail(p2, l.url)
+                                if d.get("title") and len(d.get("title","")) > len(l.title or ""): l.title = d["title"]
+                                if d.get("price") and len(d.get("price","")) > len(l.price or ""): l.price = d["price"]
+                                if d.get("location"): l.location = d["location"]
+                                if d.get("seller"): l.seller = d["seller"]
+                                if d.get("seller_url"): l.seller_url = d.get("seller_url", "")
+                                if d.get("posted"): l.posted = d["posted"]
+                                if d.get("condition"): l.condition = d["condition"]
+                                if d.get("description"): l.description = d["description"]
+                                if d.get("delivery"): l.delivery = d["delivery"]
+                            except: pass
+                            finally: await p2.close()
+                    await asyncio.gather(*[_detail(l) for l in to_detail])
 
-        if to_detail:
-            await asyncio.gather(*[_detail(l) for l in to_detail])
+                # Emit new listings immediately
+                for l in new_listings:
+                    if cfg.api_mode:
+                        print(json.dumps(l.to_dict(), ensure_ascii=False), flush=True)
+                    else:
+                        t = l.title[:45] if l.title else "-"
+                        print(f"[NEW] {t:45s} {l.price:15s} {l.location}")
 
-        for l in listings: store.add(l)
+                if stall >= 4:
+                    if cfg.api_mode:
+                        print(json.dumps({"status": "exhausted"}, ensure_ascii=False), flush=True)
+                    break
+                if cur_len >= cfg.max_listings * 5:
+                    if cfg.api_mode:
+                        print(json.dumps({"status": "exhausted"}, ensure_ascii=False), flush=True)
+                    break
 
-        if store.listings:
-            if cfg.api_mode:
-                print(json.dumps([l.to_dict() for l in store.listings], indent=2, ensure_ascii=False))
-            else:
-                store.save_csv(); store.save_json()
-                print(f"\n{'='*50}\n {len(store.listings)} LISTINGS  {datetime.now().strftime('%H:%M')}\n{'='*50}")
-                for i, l in enumerate(store.listings[:15], 1):
-                    t = l.title[:45] if l.title else "-"
-                    print(f"  {i:2}. {t:45s} {l.price:15s} {l.location}")
-                if len(store.listings) > 15: print(f"  ... +{len(store.listings)-15}")
+            except Exception as e:
+                if not cfg.api_mode:
+                    print(f"Exception in scraper loop: {e}")
 
-        cks = await ctx.cookies()
-        cfg.cookies_file.write_text(json.dumps([{
-            "name": c["name"], "value": c["value"], "domain": c["domain"],
-            "path": c["path"], "secure": c["secure"], "httpOnly": c["httpOnly"],
-            "sameSite": c.get("sameSite", "None"), "expires": c.get("expires"),
-        } for c in cks], indent=2))
-        await ctx.close()
-    return store
+            pass
 
 
 if __name__ == "__main__":

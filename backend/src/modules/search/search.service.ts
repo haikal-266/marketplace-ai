@@ -124,7 +124,14 @@ class SearchService {
     const sql = `
       WITH ranked AS (
         SELECT
-          *,
+          id, title, description, listed_price, location, seller, seller_url,
+          condition, delivery, url, image_url, posted_at, scraped_at,
+          actual_price_amount, actual_price_raw, actual_price_source,
+          is_price_fake, is_barter, is_trade_in, is_nett,
+          detected_keywords, confidence_score,
+          normalized_title, normalized_description,
+          created_at, updated_at,
+          search_vector::text as search_vector_text,
           -- FTS rank (normalized by number of queries)
           (${rankExpressions}) / ${allQueries.length} as fts_rank,
           -- Trigram similarity score (best of title or description)
@@ -228,7 +235,15 @@ class SearchService {
 
     const [items, total] = await Promise.all([
       prisma.$queryRawUnsafe<SearchResultItem[]>(`
-        SELECT * FROM listings
+        SELECT
+          id, title, description, listed_price, location, seller, seller_url,
+          condition, delivery, url, image_url, posted_at, scraped_at,
+          actual_price_amount, actual_price_raw, actual_price_source,
+          is_price_fake, is_barter, is_trade_in, is_nett,
+          detected_keywords, confidence_score,
+          normalized_title, normalized_description,
+          created_at, updated_at
+        FROM listings
         WHERE ${whereConditions}
         ORDER BY ${orderBy}
         LIMIT ${limit} OFFSET ${offset}

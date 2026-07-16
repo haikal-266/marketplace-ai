@@ -1,5 +1,7 @@
-import { spawn } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
+import readline from 'readline';
+import { EventEmitter } from 'events';
 import { config } from '../../config';
 import { cookieManager } from '../auth/cookie.manager';
 import { RawListing } from '../../pipeline/pipeline.types';
@@ -33,14 +35,13 @@ interface ScrapeJob {
  * Flow:
  * 1. Decrypt cookies dari database → tulis ke temp file
  * 2. Spawn Python process dengan args dan path cookie
- * 3. Capture JSON output dari stdout
- * 4. Cleanup temp file
- * 5. Return raw listings untuk diproses pipeline
- *
- * Hanya satu scrape job yang bisa berjalan dalam satu waktu.
+ * 3. Capture JSON output dari stdout per baris (JSON Lines)
+ * 4. Emit event 'listing' setiap kali baris valid diparsing
+ * 5. Cleanup temp file saat proses selesai / distop
  */
-class ScraperService {
+class ScraperService extends EventEmitter {
   private currentJob: ScrapeJob | null = null;
+  private childProcess: ChildProcess | null = null;
 
   getStatus(): ScrapeJob | null {
     return this.currentJob;
@@ -56,7 +57,8 @@ class ScraperService {
     }
 
     if (this.currentJob?.status === 'running') {
-      throw new AppError('Scraping sedang berjalan. Tunggu hingga selesai.', 409);
+      log.info('Scraping lama sedang berjalan. Menghentikan yang lama...');
+      await this.stopScrape();
     }
 
     this.currentJob = {
@@ -78,6 +80,21 @@ class ScraperService {
   }
 
   /**
+   * Menghentikan scraping secara manual.
+   */
+  async stopScrape(): Promise<void> {
+    if (this.childProcess) {
+      log.info('Menghentikan scraper process...');
+      this.childProcess.kill('SIGINT');
+      this.childProcess = null;
+    }
+    if (this.currentJob && this.currentJob.status === 'running') {
+      this.currentJob.status = 'done';
+    }
+    this.emit('done');
+  }
+
+  /**
    * Jalankan scraping secara async.
    * Menangani temp cookie file lifecycle sepenuhnya.
    */
@@ -85,28 +102,19 @@ class ScraperService {
     let cookieTmpPath: string | null = null;
 
     try {
-      // 1. Tulis cookies ke temp file
       cookieTmpPath = await cookieManager.writeTempFile();
-
-      // 2. Build args untuk Python scraper
       const args = this.buildArgs(options, cookieTmpPath);
+      
+      await this.spawnScraper(args);
 
-      // 3. Jalankan scraper
-      const rawListings = await this.spawnScraper(args);
-
-      // 4. Update cookies baru yang mungkin di-refresh scraper
       await cookieManager.updateFromFile(cookieTmpPath);
 
-      // 5. Update job result
-      if (this.currentJob) {
+      if (this.currentJob && this.currentJob.status === 'running') {
         this.currentJob.status = 'done';
-        this.currentJob.result = rawListings;
-        this.currentJob.totalFound = rawListings.length;
       }
-
-      log.info('Scraping selesai', { total: rawListings.length });
+      log.info('Scraping stream selesai / dihentikan');
+      this.emit('done');
     } finally {
-      // 6. Selalu cleanup temp file
       if (cookieTmpPath) {
         await cookieManager.cleanupTempFile(cookieTmpPath);
       }
@@ -143,67 +151,74 @@ class ScraperService {
   }
 
   /**
-   * Spawn Python process dan capture JSON output dari stdout.
-   * stderr di-pipe ke logger (tanpa throw — stderr scraper berisi logs normal).
+   * Spawn Python process dan baca JSON Lines output dari stdout.
+   * Setiap baris JSON valid akan di-emit sebagai event 'listing'.
    */
-  private spawnScraper(args: string[]): Promise<RawListing[]> {
+  private spawnScraper(args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
       const pythonPath = path.resolve(config.pythonPath);
       log.debug('Spawn scraper', { pythonPath, args });
 
-      const child = spawn(pythonPath, args, {
+      this.childProcess = spawn(pythonPath, args, {
         cwd: path.dirname(path.resolve(config.scraperScriptPath)),
         env: { ...process.env },
       });
 
-      let stdout = '';
-      let stderr = '';
+      if (!this.childProcess.stdout || !this.childProcess.stderr) {
+        reject(new AppError('Gagal menginisialisasi stream stdout/stderr proses', 500));
+        return;
+      }
 
-      child.stdout.on('data', (chunk: Buffer) => {
-        stdout += chunk.toString();
+      const rl = readline.createInterface({
+        input: this.childProcess.stdout,
+        terminal: false,
       });
 
-      child.stderr.on('data', (chunk: Buffer) => {
+      rl.on('line', (line) => {
+        const str = line.trim();
+        if (!str) return;
+        try {
+          const parsed = JSON.parse(str);
+          if (parsed && parsed.status === 'exhausted') {
+            this.emit('exhausted');
+            return;
+          }
+          const listing = parsed as RawListing;
+          if (this.currentJob) {
+            this.currentJob.totalFound = (this.currentJob.totalFound || 0) + 1;
+          }
+          this.emit('listing', listing);
+        } catch (err) {
+          log.debug('Output stdout bukan JSON (diabaikan)', { str: str.slice(0, 100) });
+        }
+      });
+
+      this.childProcess.stderr.on('data', (chunk: Buffer) => {
         const msg = chunk.toString().trim();
         if (msg) log.debug('[scraper stderr]', { msg });
-        stderr += msg;
       });
 
-      child.on('error', (err) => {
+      this.childProcess.on('error', (err) => {
         log.error('Gagal spawn Python process', err);
         reject(new AppError(`Gagal menjalankan scraper: ${err.message}`, 500));
       });
 
-      child.on('close', (code) => {
-        if (code !== 0) {
-          log.error('Scraper exit dengan kode error', { code, stderr: stderr.slice(0, 500) });
-          reject(new AppError(`Scraper gagal dengan exit code ${code}`, 500));
-          return;
+      this.childProcess.on('close', (code) => {
+        this.childProcess = null;
+        if (code !== 0 && code !== null) {
+          log.error('Scraper exit dengan kode error', { code });
+          // Jangan reject jika user men-stop secara manual (SIGINT biasnya exit code null atau > 128)
         }
-
-        try {
-          // Scraper output JSON array ke stdout
-          const listings = JSON.parse(stdout.trim()) as RawListing[];
-          resolve(listings);
-        } catch {
-          log.error('Gagal parse JSON output scraper', { stdout: stdout.slice(0, 200) });
-          reject(new AppError('Output scraper bukan JSON yang valid', 500));
-        }
+        resolve();
       });
     });
   }
 
   /**
-   * Ambil hasil scraping terakhir.
-   * Setelah diambil, result di-clear dari memory.
+   * (Deprecated for stream) Ambil hasil scraping terakhir.
    */
   popResult(): RawListing[] | null {
-    if (this.currentJob?.status === 'done' && this.currentJob.result) {
-      const result = this.currentJob.result;
-      this.currentJob.result = undefined;
-      return result;
-    }
-    return null;
+    return null; // Tidak digunakan lagi dengan arsitektur stream
   }
 }
 
