@@ -23,7 +23,11 @@ export class SearchIndexerStage
   name = 'SearchIndexer';
 
   async process(input: ProcessedListing): Promise<ProcessedListing> {
-    return await this.upsertListing(input) as any;
+    const saved = await this.upsertListing(input);
+    return {
+      ...saved,
+      isDetailPending: input.isDetailPending,
+    } as any;
   }
 
   /**

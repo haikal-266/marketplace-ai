@@ -18,6 +18,7 @@ class Listing:
     condition: str = ""
     delivery: str = ""
     description: str = ""
+    is_detail_pending: bool = False
     scraped_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
     def to_dict(self) -> dict:
@@ -33,6 +34,7 @@ class Listing:
             "condition": self.condition,
             "delivery": self.delivery,
             "description": self.description,
+            "is_detail_pending": self.is_detail_pending,
             "scraped_at": self.scraped_at,
         }
 

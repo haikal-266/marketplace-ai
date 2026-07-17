@@ -42,6 +42,7 @@ export class MetadataExtractorStage
       imageUrl: input.image_url,
       postedAt: input.posted,
       scrapedAt: input.scraped_at,
+      isDetailPending: input.is_detail_pending,
 
       // ─── Hasil Analisis ───────────────────────────────────────────────
       actualPriceAmount: input.actualPriceAmount,

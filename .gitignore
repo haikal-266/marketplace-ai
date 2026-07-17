@@ -28,3 +28,10 @@ fb_cookies_*.json
 
 # Playwright browsers
 /playwright-browsers/
+
+# Local scraping data & profile
+scraper/cookies.json
+scraper/.fb_profile/
+scraper/screenshots/
+*.png
+*.log

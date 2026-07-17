@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Link, 
-  Bug, 
+  Download, 
   Database, 
   BookOpen, 
   Trash2, 
@@ -18,7 +18,10 @@ import {
   ToggleRight,
   HelpCircle,
   AlertTriangle,
-  Play
+  Play,
+  ChevronDown,
+  ChevronUp,
+  Check
 } from 'lucide-react';
 import { authApi, scraperApi, dictionaryApi, listingsApi } from '../services/api';
 import type { AuthStatus, DictionaryTerm } from '../types';
@@ -46,12 +49,13 @@ export default function SettingsPage() {
   const [termsLoading, setTermsLoading] = useState(true);
   const [newTerm, setNewTerm] = useState({ term: '', meaning: '', category: 'pricing' });
   const [addingTerm, setAddingTerm] = useState(false);
+  const [termError, setTermError] = useState(false);
+  const [meaningError, setMeaningError] = useState(false);
   const [filterCategory, setFilterCategory] = useState('');
 
-  // Scrape test state
-  const [testQuery, setTestQuery] = useState('');
-  const [testLoading, setTestLoading] = useState(false);
-  const [testStatus, setTestStatus] = useState<string | null>(null);
+
+  // Export state
+  const [exporting, setExporting] = useState(false);
 
   // ── Auth ──
   const fetchAuthStatus = useCallback(async () => {
@@ -120,15 +124,36 @@ export default function SettingsPage() {
 
   const handleAddTerm = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTerm.term.trim() || !newTerm.meaning.trim()) return;
+    
+    let hasError = false;
+    if (!newTerm.term.trim()) {
+      setTermError(true);
+      hasError = true;
+    } else {
+      setTermError(false);
+    }
+    
+    if (!newTerm.meaning.trim()) {
+      setMeaningError(true);
+      hasError = true;
+    } else {
+      setMeaningError(false);
+    }
+    
+    if (hasError) return;
+    
     setAddingTerm(true);
     try {
       await dictionaryApi.create(newTerm);
       setNewTerm({ term: '', meaning: '', category: 'pricing' });
+      setTermError(false);
+      setMeaningError(false);
       await fetchTerms();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Gagal menambah istilah');
-    } finally { setNewTerm((p) => ({ ...p, term: '', meaning: '' })); setAddingTerm(false); }
+    } finally {
+      setAddingTerm(false);
+    }
   };
 
   const handleToggleTerm = async (term: DictionaryTerm) => {
@@ -156,28 +181,20 @@ export default function SettingsPage() {
     }
   };
 
-  // ── Test Scrape ──
-  const handleTestScrape = async () => {
-    if (!testQuery.trim()) return;
-    setTestLoading(true);
-    setTestStatus('Memulai scraping...');
+  // ── Export Database ──
+  const handleExportExcel = async () => {
+    setExporting(true);
     try {
-      await scraperApi.start({ query: testQuery, count: 10, headless: true });
-      const poll = setInterval(async () => {
-        const status = await scraperApi.status();
-        if (status.status === 'done') {
-          clearInterval(poll);
-          setTestStatus(`Selesai! ${status.totalFound ?? 0} listing ditemukan.`);
-          setTestLoading(false);
-        } else if (status.status === 'failed') {
-          clearInterval(poll);
-          setTestStatus(`Gagal: ${status.error}`);
-          setTestLoading(false);
-        }
-      }, 3000);
+      const link = document.createElement('a');
+      link.href = '/api/listings/export';
+      link.download = 'marketplace_listings_export.csv';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     } catch (err) {
-      setTestStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
-      setTestLoading(false);
+      alert('Gagal mengekspor data');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -269,43 +286,26 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* Bento Card 2: Test Scraping */}
-        <section className={`${styles.bentoBox} ${styles.testBox}`}>
+        {/* Bento Card 2: Export Database */}
+        <section className={`${styles.bentoBox} ${styles.exportBox}`}>
           <div className={styles.boxHeader}>
-            <Bug size={16} className={styles.boxIcon} />
-            <h2 className={styles.boxTitle}>Uji Scraper</h2>
+            <Download size={16} className={styles.boxIcon} />
+            <h2 className={styles.boxTitle}>Ekspor Data</h2>
           </div>
 
-          <div className={styles.testForm}>
-            <div className={styles.inputGroup}>
-              <input
-                className={styles.input}
-                type="text"
-                placeholder="Kata kunci pengujian (misal: iphone)..."
-                value={testQuery}
-                onChange={(e) => setTestQuery(e.target.value)}
-                disabled={testLoading || !authStatus?.isConnected}
-              />
-              <button
-                className={styles.secondaryBtn}
-                onClick={handleTestScrape}
-                disabled={testLoading || !testQuery.trim() || !authStatus?.isConnected}
-                id="btn-test-scrape"
-              >
-                {testLoading ? 'Running...' : 'Jalankan'}
-              </button>
-            </div>
-
-            {testStatus && (
-              <div className={styles.testStatusPanel}>
-                <Play size={12} className={styles.playIcon} />
-                <span>{testStatus}</span>
-              </div>
-            )}
-
-            {!authStatus?.isConnected && (
-              <p className={styles.warnText}>* Sambungkan Facebook terlebih dahulu untuk menguji scraper.</p>
-            )}
+          <div className={styles.exportContent}>
+            <p className={styles.exportDesc}>
+              Unduh seluruh data hasil pencarian/scraping dari database PostgreSQL Anda langsung ke format tabel Excel (CSV).
+            </p>
+            <button
+              className={styles.primaryBtn}
+              onClick={handleExportExcel}
+              disabled={exporting}
+              id="btn-export-excel"
+            >
+              <Download size={14} />
+              <span>{exporting ? 'Mengekspor...' : 'Ekspor Database ke Excel'}</span>
+            </button>
           </div>
         </section>
 
@@ -342,40 +342,76 @@ export default function SettingsPage() {
           </p>
 
           {/* Add Term Form */}
-          <form className={styles.addTermForm} onSubmit={handleAddTerm}>
-            <input
-              className={styles.input}
-              type="text"
-              placeholder="BU, TT, BT..."
-              value={newTerm.term}
-              onChange={(e) => setNewTerm((p) => ({ ...p, term: e.target.value }))}
-              required
-            />
-            <input
-              className={styles.input}
-              type="text"
-              placeholder="Arti (misal: Butuh Uang)"
-              value={newTerm.meaning}
-              onChange={(e) => setNewTerm((p) => ({ ...p, meaning: e.target.value }))}
-              required
-            />
-            <select
-              className={styles.select}
-              value={newTerm.category}
-              onChange={(e) => setNewTerm((p) => ({ ...p, category: e.target.value }))}
-            >
-              {CATEGORIES.map((c) => (
-                <option key={c.value} value={c.value}>{c.label}</option>
-              ))}
-            </select>
-            <button
-              type="submit"
-              className={styles.primaryBtnSquare}
-              disabled={addingTerm}
-              id="btn-add-term"
-            >
-              <Plus size={16} />
-            </button>
+          <form className={styles.addTermForm} onSubmit={handleAddTerm} noValidate>
+            <div className={styles.formFieldsRow}>
+              <div className={`${styles.inputWrapper} ${styles.termInputWrapper}`}>
+                <input
+                  className={`${styles.input} ${termError ? styles.inputError : ''}`}
+                  type="text"
+                  placeholder="BU, TT, BT..."
+                  value={newTerm.term}
+                  onChange={(e) => {
+                    setNewTerm((p) => ({ ...p, term: e.target.value }));
+                    if (e.target.value.trim()) setTermError(false);
+                  }}
+                />
+                {termError && (
+                  <div className={styles.errorTooltip}>
+                    <AlertTriangle size={12} />
+                    <span>Wajib diisi</span>
+                  </div>
+                )}
+              </div>
+              
+              <div className={`${styles.inputWrapper} ${styles.meaningInputWrapper}`}>
+                <input
+                  className={`${styles.input} ${meaningError ? styles.inputError : ''}`}
+                  type="text"
+                  placeholder="Arti (misal: Butuh Uang)"
+                  value={newTerm.meaning}
+                  onChange={(e) => {
+                    setNewTerm((p) => ({ ...p, meaning: e.target.value }));
+                    if (e.target.value.trim()) setMeaningError(false);
+                  }}
+                />
+                {meaningError && (
+                  <div className={styles.errorTooltip}>
+                    <AlertTriangle size={12} />
+                    <span>Wajib diisi</span>
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                className={styles.addButtonSquare}
+                disabled={addingTerm}
+                id="btn-add-term"
+              >
+                <Plus size={16} />
+              </button>
+            </div>
+
+            <div className={styles.categorySliderSection}>
+              <div className={styles.categorySliderLabel}>Pilih Kategori Istilah:</div>
+              <div className={styles.categorySlider}>
+                {CATEGORIES.map((c) => {
+                  const IconComponent = c.icon;
+                  const isSelected = newTerm.category === c.value;
+                  return (
+                    <button
+                      key={c.value}
+                      type="button"
+                      className={`${styles.categorySliderTab} ${isSelected ? styles.categorySliderTabActive : ''}`}
+                      onClick={() => setNewTerm((p) => ({ ...p, category: c.value }))}
+                    >
+                      <IconComponent size={12} className={styles.categoryTabIcon} />
+                      <span>{c.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </form>
 
           {/* Dictionary Filtering */}

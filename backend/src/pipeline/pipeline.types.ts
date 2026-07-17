@@ -16,6 +16,7 @@ export interface RawListing {
   condition: string;
   delivery: string;
   description: string;
+  is_detail_pending?: boolean;
   scraped_at: string;
 }
 
@@ -50,6 +51,7 @@ export interface ProcessedListing {
   imageUrl: string;
   postedAt: string;
   scrapedAt: string;
+  isDetailPending?: boolean;
 
   // ─── Hasil Analisis Pipeline ─────────────────────────────────────────
   actualPriceAmount: number | null;

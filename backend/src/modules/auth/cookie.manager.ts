@@ -37,7 +37,7 @@ export class CookieManager {
    * Dipanggil setelah login berhasil via Playwright.
    */
   async store(cookies: FBCookie[]): Promise<void> {
-    const plaintext = JSON.stringify(cookies);
+    const plaintext = JSON.stringify(cookies, null, 2);
     const encrypted = encrypt(plaintext);
 
     await prisma.appSetting.upsert({
@@ -47,6 +47,16 @@ export class CookieManager {
     });
 
     log.info('Cookies Facebook berhasil disimpan', { cookieCount: cookies.length });
+
+    // Sync to scraper/cookies.json so manual terminal runs are always in sync with DB
+    try {
+      const projectRoot = path.resolve(__dirname, '../../..');
+      const localCookiesPath = path.resolve(projectRoot, 'scraper/cookies.json');
+      await fs.writeFile(localCookiesPath, plaintext, 'utf-8');
+      log.info('Cookies berhasil disinkronkan ke scraper/cookies.json');
+    } catch (err) {
+      log.warn('Gagal sinkronisasi cookies ke scraper/cookies.json', err);
+    }
   }
 
   /**

@@ -23,6 +23,7 @@ export interface Listing {
   scrapedAt: string;
   detectedKeywords: DictionaryMatch[] | null;
   confidenceScore: number;
+  isDetailPending?: boolean;
   _rankScore?: number;
 }
 

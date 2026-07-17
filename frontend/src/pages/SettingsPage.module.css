@@ -5,6 +5,9 @@
   max-width: 900px;
   margin: 0 auto;
   padding-bottom: var(--space-12);
+  height: 100%;
+  overflow-y: auto;
+  padding-right: var(--space-2);
 }
 
 .header {
@@ -229,15 +232,24 @@
   line-height: 1.4;
 }
 
-/* ── Test Scraping ── */
-.testBox {
+/* ── Export Database ── */
+.exportBox {
   grid-column: span 1;
 }
 
-.testForm {
+.exportContent {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  flex: 1;
+  justify-content: space-between;
+}
+
+.exportDesc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
 }
 
 .inputGroup {
@@ -321,13 +333,115 @@
 }
 
 .addTermForm {
-  display: grid;
-  grid-template-columns: 140px 1fr 150px 42px;
-  gap: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  padding: var(--space-3);
+  padding: var(--space-4);
+}
+
+.formFieldsRow {
+  display: flex;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.termInputWrapper {
+  flex: 0 0 160px !important;
+}
+
+.meaningInputWrapper {
+  flex: 1;
+}
+
+.addButtonSquare {
+  height: 38px;
+  width: 42px;
+  flex-shrink: 0;
+  background: var(--accent-primary);
+  color: var(--text-primary);
+  border: none;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.addButtonSquare:hover {
+  background: var(--accent-secondary);
+}
+
+.categorySliderSection {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.categorySliderLabel {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  padding-left: 2px;
+}
+
+.categorySlider {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  width: 100%;
+  padding: 2px 0;
+}
+
+.categorySlider::-webkit-scrollbar {
+  display: none;
+}
+
+.categorySliderTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.categorySliderTab:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border-color: var(--border-normal);
+}
+
+.categorySliderTabActive {
+  background: rgba(55, 98, 200, 0.12) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--accent-primary) !important;
+  font-weight: 600;
+}
+
+.categoryTabIcon {
+  color: var(--color-info);
+  opacity: 0.8;
+}
+
+.categorySliderTabActive .categoryTabIcon {
+  color: var(--text-primary);
+  opacity: 1;
 }
 
 .primaryBtnSquare {
@@ -545,10 +659,21 @@
   }
 
   .addTermForm {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
   }
 
-  .primaryBtnSquare {
+  .formFieldsRow {
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .termInputWrapper {
+    flex: 1 1 auto !important;
+    width: 100% !important;
+  }
+
+  .addButtonSquare {
     width: 100%;
   }
 
@@ -562,4 +687,132 @@
     align-items: flex-start;
     gap: 4px;
   }
+}
+
+/* Custom error tooltip & styling */
+.inputWrapper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.inputWrapper input {
+  width: 100%;
+}
+
+.inputError {
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15) !important;
+}
+
+.errorTooltip {
+  position: absolute;
+  top: 42px;
+  left: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #fff;
+  background: #ef4444;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.errorTooltip::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 12px;
+  border: 5px solid transparent;
+  border-bottom-color: #ef4444;
+}
+
+/* Hide scrollbar for settings container */
+.page {
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  &::-webkit-scrollbar {
+    display: none;
+  }
+  /* Hide scrollbar for IE, Edge and Firefox */
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* Custom Select Dropdown Styling */
+.customSelectWrapper {
+  position: relative;
+  width: 100%;
+}
+
+.customSelectBtn {
+  width: 100%;
+  height: 38px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  padding: 0 var(--space-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.customSelectBtn:focus {
+  border-color: var(--accent-primary);
+}
+
+.customSelectDropdown {
+  position: absolute;
+  top: 42px;
+  left: 0;
+  right: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-normal);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 4px;
+  margin: 0;
+  list-style: none;
+  z-index: 150;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.customSelectItem {
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: all var(--transition-fast);
+}
+
+.customSelectItem:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.customSelectItemActive {
+  background: rgba(55, 98, 200, 0.12);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.selectCheckIcon {
+  color: var(--accent-primary);
 }

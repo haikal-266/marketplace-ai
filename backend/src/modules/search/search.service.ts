@@ -271,7 +271,11 @@ class SearchService {
     const conditions: string[] = [];
 
     if (options.location) {
-      conditions.push(`location ILIKE '%${this.escapeSql(options.location)}%'`);
+      const locs = options.location.split(',').map((l) => l.trim()).filter(Boolean);
+      if (locs.length > 0) {
+        const orConditions = locs.map((l) => `location ILIKE '%${this.escapeSql(l)}%'`).join(' OR ');
+        conditions.push(`(${orConditions})`);
+      }
     }
     if (options.minPrice !== undefined) {
       conditions.push(`actual_price_amount >= ${options.minPrice}`);

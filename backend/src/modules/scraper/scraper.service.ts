@@ -193,6 +193,10 @@ class ScraperService extends EventEmitter {
             this.emit('exhausted');
             return;
           }
+          if (parsed && parsed.status === 'facebook_blocked') {
+            this.emit('facebook_blocked');
+            return;
+          }
           const listing = parsed as RawListing;
           if (this.currentJob) {
             this.currentJob.totalFound = (this.currentJob.totalFound || 0) + 1;

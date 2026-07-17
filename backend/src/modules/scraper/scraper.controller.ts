@@ -97,15 +97,21 @@ router.get('/stream', (req, res) => {
     sendEvent('status', { status: 'exhausted' });
   };
 
+  const onFacebookBlocked = () => {
+    sendEvent('status', { status: 'facebook_blocked' });
+  };
+
   scraperService.on('listing', onListing);
   scraperService.on('done', onDone);
   scraperService.on('exhausted', onExhausted);
+  scraperService.on('facebook_blocked', onFacebookBlocked);
 
   // Client disconnects
   req.on('close', () => {
     scraperService.off('listing', onListing);
     scraperService.off('done', onDone);
     scraperService.off('exhausted', onExhausted);
+    scraperService.off('facebook_blocked', onFacebookBlocked);
     log.info('Client terputus dari stream SSE');
   });
 });

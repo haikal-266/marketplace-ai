@@ -70,6 +70,61 @@ router.get(
   })
 );
 
+function escapeCsv(val: any): string {
+  if (val === null || val === undefined) return '';
+  const str = String(val).replace(/"/g, '""'); // Escape double quotes
+  return `"${str}"`;
+}
+
+/** GET /api/listings/export — Export semua listing ke format CSV (Excel) */
+router.get(
+  '/export',
+  asyncHandler(async (_req, res) => {
+    const listings = await prisma.listing.findMany({
+      orderBy: { scrapedAt: 'desc' },
+    });
+
+    const headers = [
+      'ID',
+      'Title',
+      'URL',
+      'Harga Tertera',
+      'Harga Deteksi (Rupiah)',
+      'Teks Harga Deteksi',
+      'Sumber Deteksi',
+      'Lokasi',
+      'Penjual',
+      'Waktu Scrape',
+    ];
+
+    const rows = listings.map((l) => [
+      l.id,
+      l.title,
+      l.url,
+      l.listedPrice,
+      l.actualPriceAmount,
+      l.actualPriceRaw,
+      l.actualPriceSource,
+      l.location,
+      l.seller,
+      l.scrapedAt.toISOString(),
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map((row) => row.map(escapeCsv).join(',')),
+    ].join('\r\n');
+
+    // Prepend UTF-8 BOM agar terbaca excel dengan benar
+    const bom = Buffer.from('\ufeff', 'utf-8');
+    const csvBuffer = Buffer.concat([bom, Buffer.from(csvContent, 'utf-8')]);
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename=marketplace_listings_export.csv');
+    res.send(csvBuffer);
+  })
+);
+
 /** GET /api/listings/:id — Detail listing */
 router.get(
   '/:id',

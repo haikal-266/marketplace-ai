@@ -17,7 +17,8 @@ import {
   Check,
   Play,
   Square,
-  RefreshCw
+  RefreshCw,
+  AlertTriangle
 } from 'lucide-react';
 import { searchApi, scraperApi } from '../services/api';
 import type { SearchResult, SearchOptions, Listing } from '../types';
@@ -90,13 +91,19 @@ export default function SearchPage() {
   const [scrapeStatus, setScrapeStatus] = useState<string | null>(null);
   const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
   const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
+  const [customAlert, setCustomAlert] = useState<{
+    message: string;
+    type: 'info' | 'success' | 'warning' | 'error';
+    title?: string;
+  } | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   // Filters
   const [sortBy, setSortBy] = useState<SearchOptions['sortBy']>('relevance');
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
-  const [location, setLocation] = useState('');
+  const [locations, setLocations] = useState<string[]>([]);
+  const [locationInput, setLocationInput] = useState('');
   const [isBarter, setIsBarter] = useState<boolean | undefined>(undefined);
   const [isOpenNego, setIsOpenNego] = useState<boolean | undefined>(undefined);
   const [isNoMinus, setIsNoMinus] = useState<boolean | undefined>(undefined);
@@ -143,7 +150,7 @@ export default function SearchPage() {
         page: 1,
         limit: 100,
         excludeFakePrice: undefined,
-        location: location || undefined,
+        location: locations.join(',') || undefined,
         minPrice: minPrice ? Number.parseInt(minPrice, 10) : undefined,
         maxPrice: maxPrice ? Number.parseInt(maxPrice, 10) : undefined,
         isBarter: isBarter,
@@ -163,7 +170,7 @@ export default function SearchPage() {
         query: q,
         count: 100,
         details: true,
-        city: location,
+        city: locations[0] || '', // Gunakan kota pertama untuk scraping FB
         minPrice: minPrice ? Number.parseInt(minPrice, 10) : undefined,
         maxPrice: maxPrice ? Number.parseInt(maxPrice, 10) : undefined
       });
@@ -187,7 +194,19 @@ export default function SearchPage() {
         sse.close();
       } else if (data.status === 'exhausted') {
         setScrapeStatus('Semua produk telah habis diserap.');
-        alert('Semua produk di Facebook Marketplace untuk pencarian ini sudah habis/terserap!');
+        setCustomAlert({
+          title: 'Pencarian Selesai',
+          message: 'Semua produk di Facebook Marketplace untuk pencarian ini sudah habis/terserap!',
+          type: 'warning'
+        });
+        stopMonitoring();
+      } else if (data.status === 'facebook_blocked') {
+        setScrapeStatus('Facebook Marketplace tidak tersedia untuk akun ini.');
+        setCustomAlert({
+          title: 'Akses Terblokir',
+          message: 'Akun Facebook yang terhubung tidak memiliki akses ke Marketplace (Restricted / Blokir). Silakan hubungkan ulang dengan akun lain.',
+          type: 'error'
+        });
         stopMonitoring();
       }
     });
@@ -199,7 +218,10 @@ export default function SearchPage() {
       const actPrice = newListing.actualPriceAmount;
       if (minPrice && (actPrice === null || actPrice === undefined || actPrice < Number.parseInt(minPrice, 10))) pass = false;
       if (maxPrice && (actPrice === null || actPrice === undefined || actPrice > Number.parseInt(maxPrice, 10))) pass = false;
-      if (location && (!newListing.location || newListing.location.toLowerCase().indexOf(location.toLowerCase()) === -1)) pass = false;
+      if (locations.length > 0) {
+        const match = locations.some(loc => newListing.location && newListing.location.toLowerCase().indexOf(loc.toLowerCase()) !== -1);
+        if (!match) pass = false;
+      }
 
       if (pass) {
         setResults((prev) => {
@@ -228,6 +250,21 @@ export default function SearchPage() {
             items: [...prev.items, newListing],
           };
         });
+      } else {
+        // Jika tidak lolos validasi (misalnya harga asli dari deskripsi melebihi filter setelah detail diload),
+        // hapus dari daftar hasil pencarian agar filter di layar tetap akurat.
+        setResults((prev) => {
+          if (!prev) return null;
+          const index = prev.items.findIndex((i) => i.id === newListing.id);
+          if (index !== -1) {
+            return {
+              ...prev,
+              total: Math.max(0, prev.total - 1),
+              items: prev.items.filter((i) => i.id !== newListing.id)
+            };
+          }
+          return prev;
+        });
       }
     });
 
@@ -237,10 +274,23 @@ export default function SearchPage() {
       sse.close();
     };
 
-  }, [query, sortBy, location, minPrice, maxPrice, isBarter, isMonitoring, stopMonitoring]);
+  }, [query, sortBy, locations, minPrice, maxPrice, isBarter, isMonitoring, stopMonitoring]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') startMonitoring();
+  };
+
+  const handleLocationKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const val = locationInput.trim();
+      if (val) {
+        if (!locations.includes(val)) {
+          setLocations([...locations, val]);
+        }
+        setLocationInput('');
+      }
+    }
   };
 
   // Close filter drawer on resize to desktop & Close select dropdown on click outside
@@ -297,8 +347,10 @@ export default function SearchPage() {
         if (item.actualPriceAmount !== null && item.actualPriceAmount > max) return false;
       }
       // 3. Location Filter
-      if (location) {
-        if (!item.location || item.location.toLowerCase().indexOf(location.toLowerCase()) === -1) return false;
+      if (locations.length > 0) {
+        if (!item.location) return false;
+        const match = locations.some(loc => item.location!.toLowerCase().indexOf(loc.toLowerCase()) !== -1);
+        if (!match) return false;
       }
       // 4. Barter / TradeIn Filter
       if (isBarter) {
@@ -314,14 +366,15 @@ export default function SearchPage() {
       }
       return true;
     });
-  }, [results, minPrice, maxPrice, location, isBarter, isOpenNego, isNoMinus]);
+  }, [results, minPrice, maxPrice, locations, isBarter, isOpenNego, isNoMinus]);
 
-  const hasActiveFilters = minPrice || maxPrice || location || isBarter !== undefined || isOpenNego !== undefined || isNoMinus !== undefined || sortBy !== 'relevance';
+  const hasActiveFilters = minPrice || maxPrice || locations.length > 0 || isBarter !== undefined || isOpenNego !== undefined || isNoMinus !== undefined || sortBy !== 'relevance';
 
   const handleResetFilters = () => {
     setMinPrice('');
     setMaxPrice('');
-    setLocation('');
+    setLocations([]);
+    setLocationInput('');
     setIsBarter(undefined);
     setIsOpenNego(undefined);
     setIsNoMinus(undefined);
@@ -393,19 +446,33 @@ export default function SearchPage() {
         </div>
       </div>
 
-      {/* Location Custom Input */}
+      {/* Location Custom Tag Input */}
       <div className={styles.filterGroup}>
         <label className={styles.filterLabel}>Lokasi</label>
-        <div className={styles.customInputContainer}>
+        <div className={styles.tagInputContainer}>
           <MapPin size={14} className={styles.inputIconPrefix} />
-          <input
-            className={styles.customInput}
-            type="text"
-            placeholder="Semua Kota"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            style={{ paddingLeft: '32px' }}
-          />
+          <div className={styles.tagInputList}>
+            {locations.map((loc, i) => (
+              <span key={i} className={styles.locationInputTag}>
+                {loc}
+                <button
+                  type="button"
+                  className={styles.removeInputTagBtn}
+                  onClick={() => setLocations(locations.filter((_, idx) => idx !== i))}
+                >
+                  <X size={10} />
+                </button>
+              </span>
+            ))}
+            <input
+              className={styles.tagInputText}
+              type="text"
+              placeholder={locations.length === 0 ? "Semua Kota (Enter)" : ""}
+              value={locationInput}
+              onChange={(e) => setLocationInput(e.target.value)}
+              onKeyDown={handleLocationKeyDown}
+            />
+          </div>
         </div>
       </div>
 
@@ -599,10 +666,10 @@ export default function SearchPage() {
                 </div>
               )}
 
-              {location && (
+              {locations.length > 0 && (
                 <div className={styles.filterChip}>
-                  <span>Lokasi: "{location}"</span>
-                  <button className={styles.clearChipBtn} onClick={() => setLocation('')}>
+                  <span>Lokasi: {locations.map(l => `"${l}"`).join(', ')}</span>
+                  <button className={styles.clearChipBtn} onClick={() => setLocations([])}>
                     <X size={10} />
                   </button>
                 </div>
@@ -947,6 +1014,33 @@ export default function SearchPage() {
                   </a>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Custom Alert Modal ── */}
+      {customAlert && (
+        <div className={styles.alertOverlay} onClick={() => setCustomAlert(null)}>
+          <div className={styles.alertContainer} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.alertHeader}>
+              <div className={`${styles.alertIconContainer} ${
+                customAlert.type === 'error' ? styles.alertIconError :
+                customAlert.type === 'warning' ? styles.alertIconWarning :
+                customAlert.type === 'success' ? styles.alertIconSuccess :
+                styles.alertIconInfo
+              }`}>
+                <AlertTriangle size={18} />
+              </div>
+              <span className={styles.alertTitle}>{customAlert.title || 'Pemberitahuan'}</span>
+            </div>
+            <div className={styles.alertBody}>
+              {customAlert.message}
+            </div>
+            <div className={styles.alertFooter}>
+              <button className={styles.alertBtn} onClick={() => setCustomAlert(null)}>
+                OK
+              </button>
             </div>
           </div>
         </div>

@@ -159,10 +159,14 @@ export default function ListingCard({ listing, searchQuery = '', onClick }: Prop
           {highlightText(displayTitle, searchQuery)}
         </h3>
 
-        {/* Description Preview (Clean preview up to 3 lines) */}
-        {description && (
+        {/* Description Preview */}
+        {description ? (
           <p className={styles.description}>
             {highlightText(description, searchQuery)}
+          </p>
+        ) : (
+          <p className={styles.descriptionLoading}>
+            ⏳ <em>Deskripsi sedang dimuat. Produk mungkin otomatis terhapus jika deskripsi tidak sesuai filter Anda...</em>
           </p>
         )}
 

@@ -1,8 +1,11 @@
 import asyncio, json, random, re
 from datetime import datetime
 from pathlib import Path
+# pyrefly: ignore [missing-import]
 from playwright.async_api import async_playwright, Page, BrowserContext
+# pyrefly: ignore [missing-import]
 from playwright_stealth import Stealth
+# pyrefly: ignore [missing-import]
 from browserforge.fingerprints import FingerprintGenerator
 from config import ScraperConfig
 from models import Listing, DataStore
@@ -507,6 +510,7 @@ async def detail_worker(queue: asyncio.Queue, ctx, cfg):
                 await p2.close()
 
             # Selalu emit — pipeline tetap bisa analisis title, price, dll
+            l.is_detail_pending = False
             if cfg.api_mode:
                 print(json.dumps(l.to_dict(), ensure_ascii=False), flush=True)
             else:
@@ -528,6 +532,7 @@ async def run(cfg=None):
     detail_queue = asyncio.Queue()
     workers = []
     queued_count = 0
+    is_exhausted = False
 
     async with async_playwright() as p:
         br, ctx, fp = await mkctx(p, cfg)
@@ -547,6 +552,15 @@ async def run(cfg=None):
                 except Exception as e:
                     await asyncio.sleep(2**attempt*3)
             else:
+                return
+
+            # Cek apakah Marketplace tidak tersedia untuk akun ini
+            body_text = await page.evaluate("() => document.body.innerText")
+            if "Marketplace tidak tersedia untuk Anda" in body_text or "Marketplace is not available to you" in body_text or "Marketplace isn't available to you" in body_text:
+                if cfg.api_mode:
+                    print(json.dumps({"status": "facebook_blocked"}, ensure_ascii=False), flush=True)
+                else:
+                    print("[ERROR] Facebook Marketplace tidak tersedia untuk akun ini (Restricted/Blocked).")
                 return
 
             await dismiss(page)
@@ -599,6 +613,13 @@ async def run(cfg=None):
                             seen_urls.add(url)
                             new_listings.append(l)
 
+                    # Tandai is_detail_pending untuk listing yang akan dimasukkan ke antrean detail
+                    if cfg.scrape_details and new_listings and queued_count < cfg.max_detail_pages:
+                        slots = cfg.max_detail_pages - queued_count
+                        for idx, l in enumerate(new_listings):
+                            if idx < slots:
+                                l.is_detail_pending = True
+
                     # Emit listing instan (baik mode detail maupun non-detail)
                     if new_listings:
                         for l in new_listings:
@@ -617,12 +638,10 @@ async def run(cfg=None):
                             queued_count += 1
 
                     if stall >= 4:
-                        if cfg.api_mode:
-                            print(json.dumps({"status": "exhausted"}, ensure_ascii=False), flush=True)
+                        is_exhausted = True
                         break
                     if cur_len >= cfg.max_listings * 5:
-                        if cfg.api_mode:
-                            print(json.dumps({"status": "exhausted"}, ensure_ascii=False), flush=True)
+                        is_exhausted = True
                         break
 
                 except Exception as e:
@@ -636,6 +655,10 @@ async def run(cfg=None):
                 for task in workers:
                     task.cancel()
                 await asyncio.gather(*workers, return_exceptions=True)
+            
+            if is_exhausted and cfg.api_mode:
+                print(json.dumps({"status": "exhausted"}, ensure_ascii=False), flush=True)
+
             try: await ctx.close()
             except: pass
             try: await br.close()
