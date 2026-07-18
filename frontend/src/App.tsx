@@ -12,14 +12,12 @@ function AppInner() {
   const { pathname } = useLocation();
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-bg-primary text-text-primary flex md:flex-row flex-col">
+    <div className="min-h-screen md:h-screen w-screen overflow-y-auto md:overflow-hidden bg-bg-primary text-text-primary flex md:flex-row flex-col">
       {/* ── Sidebar (Desktop Only) ── */}
       <aside className="w-[240px] bg-bg-secondary border-r border-border-subtle flex flex-col fixed top-0 left-0 h-screen z-50 p-6 hidden md:flex">
         {/* Logo */}
         <div className="flex items-center gap-3 pb-6 border-b border-border-subtle mb-6">
-          <div className="w-6 h-6 rounded bg-accent-primary flex items-center justify-center shrink-0">
-            <span className="w-2 h-2 rounded-full bg-text-primary"></span>
-          </div>
+          <img src="/icon.svg" className="w-6 h-6 shrink-0 rounded" alt="Logo" />
           <div className="flex flex-col">
             <div className="text-sm font-bold text-text-primary tracking-tight">Marketplace AI</div>
             <div className="text-[10px] text-text-secondary font-semibold">Smart Search</div>
@@ -97,7 +95,7 @@ function AppInner() {
       </nav>
 
       {/* ── Main Content ── */}
-      <main className="md:ml-[240px] ml-0 flex-1 h-screen max-h-screen p-6 flex flex-col overflow-hidden md:h-screen md:max-h-screen md:overflow-hidden overflow-y-auto h-auto max-h-none pb-24 md:pb-6">
+      <main className="md:ml-[240px] ml-0 flex-1 flex flex-col p-6 h-auto max-h-none overflow-visible md:h-screen md:max-h-screen md:overflow-hidden pb-24 md:pb-6">
         {pathname === '/' && <Navigate to="/search" replace />}
 
         <div style={{ display: pathname.startsWith('/search') ? 'contents' : 'none' }}>

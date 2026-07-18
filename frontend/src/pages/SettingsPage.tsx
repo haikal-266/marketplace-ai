@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Link, 
   Download, 
@@ -17,7 +17,8 @@ import {
   ToggleLeft,
   ToggleRight,
   HelpCircle,
-  AlertTriangle
+  AlertTriangle,
+  ChevronDown
 } from 'lucide-react';
 import { authApi, dictionaryApi, listingsApi } from '../services/api';
 import type { AuthStatus, DictionaryTerm } from '../types';
@@ -56,6 +57,21 @@ export default function SettingsPage() {
   const [aiApiKey, setAiApiKey] = useState('');
   const [aiBaseUrl, setAiBaseUrl] = useState('https://generativelanguage.googleapis.com');
   const [aiModelName, setAiModelName] = useState('gemini-1.5-flash');
+
+  const [isProviderDropdownOpen, setIsProviderDropdownOpen] = useState(false);
+  const providerDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (providerDropdownRef.current && !providerDropdownRef.current.contains(event.target as Node)) {
+        setIsProviderDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   // Load saved AI config on mount
   useEffect(() => {
@@ -377,19 +393,73 @@ export default function SettingsPage() {
             </p>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1.5 relative" ref={providerDropdownRef}>
                 <label className="text-[10px] font-bold uppercase tracking-wider text-text-secondary">Penyedia AI (Provider)</label>
-                <select
-                  value={aiProvider}
-                  onChange={(e) => handleProviderChange(e.target.value)}
-                  className="w-full h-[38px] bg-bg-primary border border-border-subtle rounded-lg text-text-primary font-sans text-xs px-3 outline-none transition-colors duration-120 focus:border-accent-primary"
+                
+                <button
+                  type="button"
+                  onClick={() => setIsProviderDropdownOpen(!isProviderDropdownOpen)}
+                  className="w-full h-[38px] bg-bg-primary border border-border-subtle rounded-lg text-text-primary text-xs px-3 flex items-center justify-between outline-none cursor-pointer transition-colors duration-120 hover:border-border-normal focus:border-accent-primary"
                 >
-                  <option value="gemini">Google AI Studio (Gemini)</option>
-                  <option value="openai">OpenAI</option>
-                  <option value="groq">Groq</option>
-                  <option value="openrouter">OpenRouter</option>
-                  <option value="custom">Custom (OpenAI-Compatible)</option>
-                </select>
+                  <span>
+                    {aiProvider === 'gemini' && 'Google AI Studio (Gemini)'}
+                    {aiProvider === 'openai' && 'OpenAI'}
+                    {aiProvider === 'groq' && 'Groq'}
+                    {aiProvider === 'openrouter' && 'OpenRouter'}
+                    {aiProvider === 'custom' && 'Custom (OpenAI-Compatible)'}
+                  </span>
+                  <ChevronDown size={14} className={`text-text-muted transition-transform duration-150 ${isProviderDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {isProviderDropdownOpen && (
+                  <div className="absolute top-[60px] left-0 right-0 bg-bg-secondary border border-border-normal rounded-lg shadow-xl py-1.5 z-[100] animate-fade-in flex flex-col">
+                    <button
+                      type="button"
+                      onClick={() => { handleProviderChange('gemini'); setIsProviderDropdownOpen(false); }}
+                      className={`w-full text-left px-3 py-2 text-xs transition-colors hover:bg-bg-tertiary hover:text-text-primary cursor-pointer border-none bg-transparent ${
+                        aiProvider === 'gemini' ? 'bg-accent-primary/10 text-accent-tertiary font-semibold' : 'text-text-secondary'
+                      }`}
+                    >
+                      Google AI Studio (Gemini)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { handleProviderChange('openai'); setIsProviderDropdownOpen(false); }}
+                      className={`w-full text-left px-3 py-2 text-xs transition-colors hover:bg-bg-tertiary hover:text-text-primary cursor-pointer border-none bg-transparent ${
+                        aiProvider === 'openai' ? 'bg-accent-primary/10 text-accent-tertiary font-semibold' : 'text-text-secondary'
+                      }`}
+                    >
+                      OpenAI
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { handleProviderChange('groq'); setIsProviderDropdownOpen(false); }}
+                      className={`w-full text-left px-3 py-2 text-xs transition-colors hover:bg-bg-tertiary hover:text-text-primary cursor-pointer border-none bg-transparent ${
+                        aiProvider === 'groq' ? 'bg-accent-primary/10 text-accent-tertiary font-semibold' : 'text-text-secondary'
+                      }`}
+                    >
+                      Groq
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { handleProviderChange('openrouter'); setIsProviderDropdownOpen(false); }}
+                      className={`w-full text-left px-3 py-2 text-xs transition-colors hover:bg-bg-tertiary hover:text-text-primary cursor-pointer border-none bg-transparent ${
+                        aiProvider === 'openrouter' ? 'bg-accent-primary/10 text-accent-tertiary font-semibold' : 'text-text-secondary'
+                      }`}
+                    >
+                      OpenRouter
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { handleProviderChange('custom'); setIsProviderDropdownOpen(false); }}
+                      className={`w-full text-left px-3 py-2 text-xs transition-colors hover:bg-bg-tertiary hover:text-text-primary cursor-pointer border-none bg-transparent ${
+                        aiProvider === 'custom' ? 'bg-accent-primary/10 text-accent-tertiary font-semibold' : 'text-text-secondary'
+                      }`}
+                    >
+                      Custom (OpenAI-Compatible)
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-col gap-1.5">
@@ -596,7 +666,7 @@ export default function SettingsPage() {
                   }`}>
                     <div className="flex flex-col md:flex-row items-start md:items-center gap-1.5 md:gap-4 min-w-0 flex-1">
                       <code className="font-mono text-xs font-bold text-accent-tertiary bg-accent-primary/8 border border-border-subtle px-1.5 py-0.5 rounded whitespace-nowrap shrink-0">{term.term}</code>
-                      <span className="text-[13px] text-text-primary whitespace-nowrap overflow-hidden text-ellipsis">{term.meaning}</span>
+                      <span className="text-[13px] text-text-primary whitespace-normal break-words">{term.meaning}</span>
                     </div>
                     
                     <div className="flex items-center gap-2 shrink-0">

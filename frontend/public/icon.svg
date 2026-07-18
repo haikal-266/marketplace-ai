@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36">
+  <!-- Rounded corner background square in theme blue -->
+  <rect width="36" height="36" rx="8" fill="#3762c8"/>
+  <!-- White storefront (marketplace) icon -->
+  <path d="M27 13H9v-2h18v2zm1 5v-2l-1.2-4.8H9.2L8 16v2c0 .55.45 1 1 1h1v9h8v-9h4v9h2v-9h1c.55 0 1-.45 1-1zm-10 9h-4v-5h4v5z" fill="#ffffff"/>
+</svg>

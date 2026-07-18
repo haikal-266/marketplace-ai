@@ -447,7 +447,7 @@ export default function SearchPage() {
 
   useEffect(() => {
     const el = scrollContainerRef.current;
-    if (!el) return;
+    if (!el || window.innerWidth < 768) return;
 
     const onWheel = (e: WheelEvent) => {
       if (e.deltaY !== 0) {
@@ -1248,22 +1248,22 @@ export default function SearchPage() {
   );
 
   return (
-    <div className="flex flex-col gap-4 w-full max-w-full m-0 h-full max-h-full overflow-hidden">
+    <div className="flex flex-col gap-4 w-full max-w-full m-0 h-auto md:h-full md:max-h-full overflow-visible md:overflow-hidden pb-20 md:pb-0">
       {/* ── Header ── */}
       <header className="flex flex-col gap-1">
         <h1 className="text-xl md:text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-text-primary to-accent-tertiary tracking-tight">Dashboard Analitik</h1>
         <p className="text-[13px] text-text-secondary">Pantau dan filter data Facebook Marketplace secara cerdas secara real-time.</p>
       </header>
       {/* ── Bento Layout Grid ── */}
-      <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] md:grid-rows-[auto_1fr] gap-4 items-stretch flex-1 min-h-0 overflow-hidden h-full">
+      <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] md:grid-rows-[auto_1fr] gap-4 items-stretch flex-1 min-h-0 overflow-visible md:overflow-hidden h-auto md:h-full">
         {/* Bento Box 1: Search Panel */}
-        <section className="bg-bg-card border border-border-subtle rounded-xl flex flex-row items-center gap-3 p-4 md:px-5 md:py-4 hover:border-border-normal hover:shadow-[0_4px_20px_rgba(9,13,27,0.4)] transition-all duration-200 col-span-1 md:col-span-2">
-          <div className="flex-1 flex items-center gap-2 bg-bg-primary border border-border-subtle rounded-lg px-3 h-11 transition-all duration-200 focus-within:border-accent-primary focus-within:shadow-[0_0_0_3px_rgba(55,98,200,0.15)]">
+        <section className="bg-bg-card border border-border-subtle rounded-xl flex flex-row items-center gap-3 p-4 md:px-5 md:py-4 hover:border-border-normal hover:shadow-[0_4px_20px_rgba(9,13,27,0.4)] transition-all duration-200 col-span-1 md:col-span-2 min-w-0">
+          <div className="flex-1 flex items-center gap-2 bg-bg-primary border border-border-subtle rounded-lg px-3 h-11 transition-all duration-200 focus-within:border-accent-primary focus-within:shadow-[0_0_0_3px_rgba(55,98,200,0.15)] min-w-0">
             <Search className="text-info opacity-80 shrink-0" size={18} />
             <input
               ref={searchInputRef}
               id="search-input"
-              className="flex-grow bg-transparent border-none outline-none text-text-primary font-sans text-sm placeholder:text-text-muted"
+              className="flex-grow bg-transparent border-none outline-none text-text-primary font-sans text-sm placeholder:text-text-muted w-full min-w-0"
               type="text"
               placeholder="Masukkan Barang Yang Ingin Dicari."
               value={query}
@@ -1328,7 +1328,7 @@ export default function SearchPage() {
         </div>
 
         {/* Bento Box 5: Main Results Container */}
-        <div className="col-span-1 row-start-2 md:col-span-1 flex flex-col gap-3 h-full overflow-hidden">
+        <div className="col-span-1 md:row-start-2 md:col-span-1 flex flex-col gap-3 h-auto md:h-full overflow-visible md:overflow-hidden self-start md:self-auto w-full">
           {/* Informative Stats & Active Filter Chips Bar */}
           {results && (
             <div className="flex items-center gap-3 bg-bg-card/40 border border-border-subtle/80 rounded-xl p-3 min-w-0">
@@ -1338,10 +1338,10 @@ export default function SearchPage() {
               </div>
 
               {/* Vertical Divider */}
-              <div className="w-[1px] h-4 bg-border-normal shrink-0"></div>
+              <div className="w-[1px] h-4 bg-border-normal shrink-0 hidden md:block"></div>
 
               {/* Render Active Filter Chips */}
-              <div className="flex-grow flex flex-nowrap gap-1.5 overflow-x-auto whitespace-nowrap py-0.5 min-w-0 justify-start scrollbar-none">
+              <div className="flex-grow flex flex-nowrap gap-1.5 overflow-x-auto whitespace-nowrap py-0.5 min-w-0 justify-start scrollbar-none hidden md:flex">
                 {results && results.query && (
                   <div className="inline-flex items-center bg-bg-tertiary border border-border-subtle/60 rounded-full px-2.5 py-1 text-[10px] font-semibold text-text-secondary" title="Pencarian Utama">
                     <span>Query: "{results.query}"</span>
@@ -1446,7 +1446,7 @@ export default function SearchPage() {
               </div>
             </div>
           )}
-          <div className="flex-grow flex flex-col justify-center min-h-0 overflow-hidden bg-bg-card border border-border-subtle rounded-xl p-5 hover:border-border-normal hover:shadow-[0_4px_20px_rgba(9,13,27,0.4)] transition-all duration-200">
+          <div className="flex-grow flex flex-col justify-center min-h-0 overflow-visible md:overflow-hidden bg-bg-card border border-border-subtle rounded-xl p-5 hover:border-border-normal hover:shadow-[0_4px_20px_rgba(9,13,27,0.4)] transition-all duration-200">
             {/* Error message banner */}
             {error && (
               <div className="flex items-center bg-[#a3988f]/10 border border-[#a3988f]/20 rounded-lg p-3 text-xs text-danger mb-4 animate-fade-in">
@@ -1517,18 +1517,18 @@ export default function SearchPage() {
 
             {/* Results Grid display: 1-Row Horizontal scrollable column flow */}
             {!loading && results && filteredItems.length > 0 && (
-              <div className="relative w-full h-full overflow-hidden">
+              <div className="relative w-full md:h-full overflow-visible md:overflow-hidden">
                 {/* Left Fade Overlay */}
-                <div className="absolute top-0 left-0 bottom-4 w-8 bg-gradient-to-r from-bg-bg-card to-transparent pointer-events-none z-10" />
+                <div className="absolute top-0 left-0 bottom-4 w-8 bg-gradient-to-r from-bg-bg-card to-transparent pointer-events-none z-10 hidden md:block" />
                 {/* Right Fade Overlay */}
-                <div className="absolute top-0 right-0 bottom-4 w-8 bg-gradient-to-l from-bg-bg-card to-transparent pointer-events-none z-10" />
+                <div className="absolute top-0 right-0 bottom-4 w-8 bg-gradient-to-l from-bg-bg-card to-transparent pointer-events-none z-10 hidden md:block" />
 
                 <div
-                  className="grid grid-flow-col grid-rows-1 auto-cols-[310px] gap-4 overflow-x-auto overflow-y-hidden pb-4 smooth-scroll w-full h-full max-h-[480px] thin-scrollbar"
+                  className="grid grid-cols-1 gap-4 overflow-visible md:grid-flow-col md:grid-rows-1 md:auto-cols-[310px] md:gap-4 md:overflow-x-auto md:overflow-y-hidden md:pb-4 smooth-scroll w-full h-auto md:h-full md:max-h-[480px] thin-scrollbar"
                   ref={scrollContainerRef}
                 >
                   {filteredItems.map((listing) => (
-                    <div key={listing.id} className="h-full w-full">
+                    <div key={listing.id} className="h-auto md:h-full w-full">
                       <ListingCard
                         listing={listing}
                         searchQuery={query}
@@ -1569,16 +1569,16 @@ export default function SearchPage() {
           {/* ── Detail Modal ── */}
           {selectedListing && (
             <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4" onClick={() => setSelectedListing(null)}>
-              <div className="w-full max-w-4xl bg-bg-secondary border border-border-subtle rounded-2xl overflow-hidden shadow-2xl animate-fade-in relative" onClick={(e) => e.stopPropagation()}>
+              <div className="w-full max-w-4xl max-h-[90vh] bg-bg-secondary border border-border-subtle rounded-2xl overflow-y-auto md:overflow-hidden shadow-2xl animate-fade-in relative" onClick={(e) => e.stopPropagation()}>
                 {/* Modal Close Button (Top Right of entire Modal) */}
                 <button className="absolute top-4 right-4 w-8 h-8 rounded-full bg-black/40 border border-border-subtle flex items-center justify-center text-text-primary hover:text-white cursor-pointer transition-colors z-50 backdrop-blur" onClick={() => setSelectedListing(null)}>
                   <X size={16} />
                 </button>
 
                 {/* Modal Body */}
-                <div className="flex flex-col md:flex-row h-full max-h-[85vh]">
+                <div className="flex flex-col md:flex-row h-auto md:h-full md:max-h-[85vh]">
                   {/* Left Column: Image Area */}
-                  <div className="relative md:w-1/2 aspect-video md:aspect-auto bg-bg-primary overflow-hidden flex items-center justify-center">
+                  <div className="relative w-full md:w-1/2 aspect-video md:aspect-auto bg-bg-primary overflow-hidden flex items-center justify-center shrink-0">
                     {selectedListing.imageUrl ? (
                       <img
                         src={selectedListing.imageUrl}
@@ -1594,7 +1594,7 @@ export default function SearchPage() {
                   </div>
 
                   {/* Right Column: Detailed Info */}
-                  <div className="md:w-1/2 p-6 overflow-y-auto flex flex-col gap-5 thin-scrollbar">
+                  <div className="w-full md:w-1/2 p-6 md:overflow-y-auto flex flex-col gap-5 thin-scrollbar shrink-0 md:shrink">
                     <h2 className="text-lg font-bold text-text-primary m-0 pr-8">{selectedListing.title || '(Tanpa judul)'}</h2>
 
                     {/* Price Display Block */}
