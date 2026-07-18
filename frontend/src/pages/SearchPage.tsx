@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   Search,
-  Activity,
   SlidersHorizontal,
   X,
   MapPin,
@@ -23,7 +22,6 @@ import {
 import { searchApi, scraperApi } from '../services/api';
 import type { SearchResult, SearchOptions, Listing } from '../types';
 import ListingCard, { hasMinus, overrideCurrencyToRupiah } from '../components/ListingCard/ListingCard';
-import styles from './SearchPage.module.css';
 
 const SORT_OPTIONS = [
   { value: 'relevance', label: 'Relevansi' },
@@ -82,8 +80,46 @@ function getWhatsAppLink(title: string | null, description: string | null): stri
   return null;
 }
 
+/** Key untuk menyimpan session terakhir di localStorage */
+const SESSION_KEY = 'marketplace_last_session';
+
+interface SavedSession {
+  query: string;
+  sortBy: SearchOptions['sortBy'];
+  minPrice: string;
+  maxPrice: string;
+  locations: string[];
+  isBarter: boolean | undefined;
+  isOpenNego: boolean | undefined;
+  isNoMinus: boolean | undefined;
+}
+
+function loadSession(): SavedSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSession(session: SavedSession) {
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  } catch { }
+}
+
+function clearSession() {
+  try {
+    localStorage.removeItem(SESSION_KEY);
+  } catch { }
+}
+
 export default function SearchPage() {
-  const [query, setQuery] = useState('');
+  // Baca saved session untuk initial state — agar filter tersimpan saat refresh
+  const _saved = loadSession();
+
+  const [query, setQuery] = useState(_saved?.query ?? '');
   const [results, setResults] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,16 +133,17 @@ export default function SearchPage() {
     title?: string;
   } | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const restoredRef = useRef(false);
 
-  // Filters
-  const [sortBy, setSortBy] = useState<SearchOptions['sortBy']>('relevance');
-  const [minPrice, setMinPrice] = useState('');
-  const [maxPrice, setMaxPrice] = useState('');
-  const [locations, setLocations] = useState<string[]>([]);
+  // Filters — diinisialisasi dari saved session jika ada
+  const [sortBy, setSortBy] = useState<SearchOptions['sortBy']>(_saved?.sortBy ?? 'relevance');
+  const [minPrice, setMinPrice] = useState(_saved?.minPrice ?? '');
+  const [maxPrice, setMaxPrice] = useState(_saved?.maxPrice ?? '');
+  const [locations, setLocations] = useState<string[]>(_saved?.locations ?? []);
   const [locationInput, setLocationInput] = useState('');
-  const [isBarter, setIsBarter] = useState<boolean | undefined>(undefined);
-  const [isOpenNego, setIsOpenNego] = useState<boolean | undefined>(undefined);
-  const [isNoMinus, setIsNoMinus] = useState<boolean | undefined>(undefined);
+  const [isBarter, setIsBarter] = useState<boolean | undefined>(_saved?.isBarter);
+  const [isOpenNego, setIsOpenNego] = useState<boolean | undefined>(_saved?.isOpenNego);
+  const [isNoMinus, setIsNoMinus] = useState<boolean | undefined>(_saved?.isNoMinus);
   const [isNoService, setIsNoService] = useState<boolean | undefined>(undefined);
   const [completenessFilter, setCompletenessFilter] = useState<'all' | 'fullset' | 'unit_only'>('all');
   const [connectivityFilter, setConnectivityFilter] = useState<'all' | 'all_operator' | 'wifi_only'>('all');
@@ -116,6 +153,42 @@ export default function SearchPage() {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // ── Auto-restore: query DB saat page dimuat jika ada saved session ──────────
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+
+    const saved = loadSession();
+    if (!saved?.query) return;
+
+    // Ada session tersimpan — langsung ambil data dari DB (tanpa scraping)
+    setScrapeStatus('Memuat data sesi terakhir dari database...');
+    setLoading(true);
+
+    const opts: SearchOptions = {
+      q: saved.query,
+      sortBy: saved.sortBy ?? 'relevance',
+      page: 1,
+      limit: 100,
+      location: saved.locations?.join(',') || undefined,
+      minPrice: saved.minPrice ? Number.parseInt(saved.minPrice, 10) : undefined,
+      maxPrice: saved.maxPrice ? Number.parseInt(saved.maxPrice, 10) : undefined,
+      isBarter: saved.isBarter,
+    };
+
+    searchApi.search(opts)
+      .then((data) => {
+        setResults(data);
+        setScrapeStatus(`Sesi terakhir dipulihkan: "${saved.query}" (${data.total} listing dari database)`);
+      })
+      .catch(() => {
+        setScrapeStatus(null);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, []);
 
   const stopMonitoring = useCallback(async () => {
     setIsMonitoring(false);
@@ -141,6 +214,9 @@ export default function SearchPage() {
     setError(null);
     setIsMonitoring(true);
     setScrapeStatus('Mencari database lokal...');
+
+    // Simpan session ke localStorage agar bisa di-restore saat refresh
+    saveSession({ query: q, sortBy, minPrice, maxPrice, locations, isBarter, isOpenNego, isNoMinus });
 
     // 1. Ambil data dari database dulu
     try {
@@ -193,13 +269,12 @@ export default function SearchPage() {
         setIsMonitoring(false);
         sse.close();
       } else if (data.status === 'exhausted') {
-        setScrapeStatus('Semua produk telah habis diserap.');
+        setScrapeStatus('Semua produk terserap. Menunggu deskripsi selesai dimuat...');
         setCustomAlert({
-          title: 'Pencarian Selesai',
-          message: 'Semua produk di Facebook Marketplace untuk pencarian ini sudah habis/terserap!',
+          title: 'Data Habis Terserap',
+          message: 'Semua produk di Facebook Marketplace sudah habis terserap! Sistem masih memuat deskripsi produk yang tampil...',
           type: 'warning'
         });
-        stopMonitoring();
       } else if (data.status === 'facebook_blocked') {
         setScrapeStatus('Facebook Marketplace tidak tersedia untuk akun ini.');
         setCustomAlert({
@@ -251,8 +326,6 @@ export default function SearchPage() {
           };
         });
       } else {
-        // Jika tidak lolos validasi (misalnya harga asli dari deskripsi melebihi filter setelah detail diload),
-        // hapus dari daftar hasil pencarian agar filter di layar tetap akurat.
         setResults((prev) => {
           if (!prev) return null;
           const index = prev.items.findIndex((i) => i.id === newListing.id);
@@ -293,7 +366,6 @@ export default function SearchPage() {
     }
   };
 
-  // Close filter drawer on resize to desktop & Close select dropdown on click outside
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth >= 768) {
@@ -316,7 +388,6 @@ export default function SearchPage() {
     };
   }, []);
 
-  // Sideway wheel scrolling handler on product container
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
@@ -332,35 +403,28 @@ export default function SearchPage() {
     return () => el.removeEventListener('wheel', onWheel);
   }, [results]);
 
-  // Local real-time filtering for display
   const filteredItems = useMemo(() => {
     if (!results) return [];
     return results.items.filter((item) => {
-      // 1. Min Price Filter
       if (minPrice) {
         const min = Number.parseInt(minPrice, 10);
         if (item.actualPriceAmount !== null && item.actualPriceAmount < min) return false;
       }
-      // 2. Max Price Filter
       if (maxPrice) {
         const max = Number.parseInt(maxPrice, 10);
         if (item.actualPriceAmount !== null && item.actualPriceAmount > max) return false;
       }
-      // 3. Location Filter
       if (locations.length > 0) {
         if (!item.location) return false;
         const match = locations.some(loc => item.location!.toLowerCase().indexOf(loc.toLowerCase()) !== -1);
         if (!match) return false;
       }
-      // 4. Barter / TradeIn Filter
       if (isBarter) {
         if (!item.isBarter && !item.isTradeIn) return false;
       }
-      // 5. Open Nego Filter (Cari data yang flag nya tidak ada kata nett)
       if (isOpenNego) {
         if (item.isNett === true) return false;
       }
-      // 6. No Minus Filter (Cari data yang tidak ada kerusakan/minus)
       if (isNoMinus) {
         if (hasMinus(item.title || '', item.description || '')) return false;
       }
@@ -384,12 +448,12 @@ export default function SearchPage() {
   const renderFiltersContent = () => (
     <>
       {/* Custom Dropdown Select */}
-      <div className={styles.filterGroup}>
-        <label className={styles.filterLabel}>Urutan</label>
-        <div className={styles.customSelectWrapper} ref={dropdownRef}>
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[10px] font-bold uppercase tracking-wider text-text-secondary">Urutan</label>
+        <div className="relative w-full" ref={dropdownRef}>
           <button
             type="button"
-            className={styles.customSelectBtn}
+            className="w-full h-[38px] bg-bg-primary border border-border-subtle rounded-lg text-text-primary font-sans text-xs px-3 flex items-center justify-between cursor-pointer outline-none transition-colors duration-120 focus:border-accent-primary"
             onClick={() => setIsSortDropdownOpen((prev) => !prev)}
           >
             <span>{SORT_OPTIONS.find((o) => o.value === sortBy)?.label}</span>
@@ -397,18 +461,19 @@ export default function SearchPage() {
           </button>
 
           {isSortDropdownOpen && (
-            <ul className={styles.customSelectDropdown}>
+            <ul className="absolute top-[42px] left-0 right-0 bg-bg-secondary border border-border-normal rounded-lg shadow-lg p-1 m-0 list-none z-50 max-h-[200px] overflow-y-auto">
               {SORT_OPTIONS.map((o) => (
                 <li
                   key={o.value}
-                  className={`${styles.customSelectItem} ${sortBy === o.value ? styles.customSelectItemActive : ''}`}
+                  className={`text-[13px] text-text-secondary px-3 py-2 rounded cursor-pointer flex items-center justify-between transition-all duration-120 hover:bg-bg-tertiary hover:text-text-primary ${sortBy === o.value ? 'bg-accent-primary/12 text-text-primary font-semibold' : ''
+                    }`}
                   onClick={() => {
                     setSortBy(o.value as SearchOptions['sortBy']);
                     setIsSortDropdownOpen(false);
                   }}
                 >
                   {o.label}
-                  {sortBy === o.value && <Check size={14} className={styles.selectCheckIcon} />}
+                  {sortBy === o.value && <Check size={14} className="text-accent-primary" />}
                 </li>
               ))}
             </ul>
@@ -417,12 +482,12 @@ export default function SearchPage() {
       </div>
 
       {/* Min Price Custom Input */}
-      <div className={styles.filterGroup}>
-        <label className={styles.filterLabel}>Min Harga</label>
-        <div className={styles.customInputContainer}>
-          <span className={styles.inputPrefix}>Rp</span>
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[10px] font-bold uppercase tracking-wider text-text-secondary">Min Harga</label>
+        <div className="relative flex items-center w-full">
+          <span className="absolute left-3 text-xs font-semibold text-text-muted select-none">Rp</span>
           <input
-            className={styles.customInput}
+            className="w-full h-[38px] bg-bg-primary border border-border-subtle rounded-lg text-text-primary font-sans text-xs pl-8 pr-3 outline-none transition-colors duration-120 focus:border-accent-primary"
             type="text"
             placeholder="0"
             value={formatInputPrice(minPrice)}
@@ -432,12 +497,12 @@ export default function SearchPage() {
       </div>
 
       {/* Max Price Custom Input */}
-      <div className={styles.filterGroup}>
-        <label className={styles.filterLabel}>Max Harga</label>
-        <div className={styles.customInputContainer}>
-          <span className={styles.inputPrefix}>Rp</span>
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[10px] font-bold uppercase tracking-wider text-text-secondary">Max Harga</label>
+        <div className="relative flex items-center w-full">
+          <span className="absolute left-3 text-xs font-semibold text-text-muted select-none">Rp</span>
           <input
-            className={styles.customInput}
+            className="w-full h-[38px] bg-bg-primary border border-border-subtle rounded-lg text-text-primary font-sans text-xs pl-8 pr-3 outline-none transition-colors duration-120 focus:border-accent-primary"
             type="text"
             placeholder="0"
             value={formatInputPrice(maxPrice)}
@@ -447,17 +512,17 @@ export default function SearchPage() {
       </div>
 
       {/* Location Custom Tag Input */}
-      <div className={styles.filterGroup}>
-        <label className={styles.filterLabel}>Lokasi</label>
-        <div className={styles.tagInputContainer}>
-          <MapPin size={14} className={styles.inputIconPrefix} />
-          <div className={styles.tagInputList}>
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[10px] font-bold uppercase tracking-wider text-text-secondary">Lokasi</label>
+        <div className="relative flex items-center bg-bg-primary border border-border-subtle rounded-lg px-3 h-[38px] w-full transition-colors focus-within:border-accent-primary overflow-hidden">
+          <MapPin size={14} className="text-info opacity-70 shrink-0 mr-2" />
+          <div className="flex flex-row overflow-x-auto whitespace-nowrap scrollbar-none items-center gap-1.5 flex-1 h-full py-1">
             {locations.map((loc, i) => (
-              <span key={i} className={styles.locationInputTag}>
+              <span key={i} className="inline-flex items-center gap-1 bg-accent-tertiary/10 border border-accent-tertiary/20 rounded px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary shrink-0">
                 {loc}
                 <button
                   type="button"
-                  className={styles.removeInputTagBtn}
+                  className="bg-transparent border-none p-0.5 rounded-full hover:bg-accent-tertiary/20 text-text-muted hover:text-text-primary cursor-pointer shrink-0"
                   onClick={() => setLocations(locations.filter((_, idx) => idx !== i))}
                 >
                   <X size={10} />
@@ -465,7 +530,7 @@ export default function SearchPage() {
               </span>
             ))}
             <input
-              className={styles.tagInputText}
+              className="bg-transparent border-none outline-none text-text-primary font-sans text-xs min-w-[120px] placeholder:text-text-muted h-full flex-grow shrink-0"
               type="text"
               placeholder={locations.length === 0 ? "Semua Kota (Enter)" : ""}
               value={locationInput}
@@ -477,47 +542,50 @@ export default function SearchPage() {
       </div>
 
       {/* Custom Checkbox - Barter/TT */}
-      <div className={styles.filterGroup}>
+      <div className="flex flex-col gap-1.5">
         <div
-          className={styles.customCheckboxContainer}
+          className="flex items-center gap-2 cursor-pointer select-none py-1"
           onClick={() => setIsBarter(isBarter === true ? undefined : true)}
         >
-          <div className={`${styles.customCheckbox} ${isBarter === true ? styles.customCheckboxChecked : ''}`}>
-            {isBarter === true && <Check size={12} strokeWidth={3} className={styles.checkboxCheck} />}
+          <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all duration-120 shrink-0 ${isBarter === true ? 'border-accent-primary bg-accent-primary text-white' : 'border-border-subtle bg-bg-primary'
+            }`}>
+            {isBarter === true && <Check size={12} strokeWidth={3} className="text-white" />}
           </div>
-          <span className={styles.checkboxLabelText}>Khusus Tukar (BT / TT)</span>
+          <span className="text-xs font-medium text-text-secondary">Khusus Tukar (BT / TT)</span>
         </div>
       </div>
 
       {/* Custom Checkbox - Open Nego */}
-      <div className={styles.filterGroup}>
+      <div className="flex flex-col gap-1.5">
         <div
-          className={styles.customCheckboxContainer}
+          className="flex items-center gap-2 cursor-pointer select-none py-1"
           onClick={() => setIsOpenNego(isOpenNego === true ? undefined : true)}
         >
-          <div className={`${styles.customCheckbox} ${isOpenNego === true ? styles.customCheckboxChecked : ''}`}>
-            {isOpenNego === true && <Check size={12} strokeWidth={3} className={styles.checkboxCheck} />}
+          <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all duration-120 shrink-0 ${isOpenNego === true ? 'border-accent-primary bg-accent-primary text-white' : 'border-border-subtle bg-bg-primary'
+            }`}>
+            {isOpenNego === true && <Check size={12} strokeWidth={3} className="text-white" />}
           </div>
-          <span className={styles.checkboxLabelText}>Bisa Nego (Open Nego)</span>
+          <span className="text-xs font-medium text-text-secondary">Bisa Nego (Open Nego)</span>
         </div>
       </div>
 
       {/* Custom Checkbox - No Minus */}
-      <div className={styles.filterGroup}>
+      <div className="flex flex-col gap-1.5">
         <div
-          className={styles.customCheckboxContainer}
+          className="flex items-center gap-2 cursor-pointer select-none py-1"
           onClick={() => setIsNoMinus(isNoMinus === true ? undefined : true)}
         >
-          <div className={`${styles.customCheckbox} ${isNoMinus === true ? styles.customCheckboxChecked : ''}`}>
-            {isNoMinus === true && <Check size={12} strokeWidth={3} className={styles.checkboxCheck} />}
+          <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all duration-120 shrink-0 ${isNoMinus === true ? 'border-accent-primary bg-accent-primary text-white' : 'border-border-subtle bg-bg-primary'
+            }`}>
+            {isNoMinus === true && <Check size={12} strokeWidth={3} className="text-white" />}
           </div>
-          <span className={styles.checkboxLabelText}>Tanpa Minus (No Minus)</span>
+          <span className="text-xs font-medium text-text-secondary">Tanpa Minus (No Minus)</span>
         </div>
       </div>
 
       {hasActiveFilters && (
         <button
-          className={styles.resetBtn}
+          className="w-full h-8 rounded border border-border-subtle bg-transparent text-[11px] font-semibold text-text-secondary cursor-pointer transition-colors duration-120 hover:bg-bg-tertiary hover:text-text-primary"
           onClick={handleResetFilters}
         >
           Reset Semua Filter
@@ -527,23 +595,22 @@ export default function SearchPage() {
   );
 
   return (
-    <div className={styles.page}>
+    <div className="flex flex-col gap-4 w-full max-w-full m-0 h-full max-h-full overflow-hidden">
       {/* ── Header ── */}
-      <header className={styles.header}>
-        <h1 className={styles.pageTitle}>Dashboard Analitik</h1>
-        <p className={styles.pageSubtitle}>Pantau dan filter data Facebook Marketplace secara cerdas secara real-time.</p>
+      <header className="flex flex-col gap-1">
+        <h1 className="text-xl md:text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-text-primary to-accent-tertiary tracking-tight">Dashboard Analitik</h1>
+        <p className="text-[13px] text-text-secondary">Pantau dan filter data Facebook Marketplace secara cerdas secara real-time.</p>
       </header>
-
       {/* ── Bento Layout Grid ── */}
-      <div className={styles.bentoLayout}>
+      <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] md:grid-rows-[auto_1fr] gap-4 items-stretch flex-1 min-h-0 overflow-hidden h-full">
         {/* Bento Box 1: Search Panel */}
-        <section className={`${styles.bentoBox} ${styles.searchPanel}`}>
-          <div className={styles.searchBar}>
-            <Search className={styles.searchIcon} size={18} />
+        <section className="bg-bg-card border border-border-subtle rounded-xl flex flex-row items-center gap-3 p-4 md:px-5 md:py-4 hover:border-border-normal hover:shadow-[0_4px_20px_rgba(9,13,27,0.4)] transition-all duration-200 col-span-1 md:col-span-2">
+          <div className="flex-1 flex items-center gap-2 bg-bg-primary border border-border-subtle rounded-lg px-3 h-11 transition-all duration-200 focus-within:border-accent-primary focus-within:shadow-[0_0_0_3px_rgba(55,98,200,0.15)]">
+            <Search className="text-info opacity-80 shrink-0" size={18} />
             <input
               ref={searchInputRef}
               id="search-input"
-              className={styles.searchInput}
+              className="flex-grow bg-transparent border-none outline-none text-text-primary font-sans text-sm placeholder:text-text-muted"
               type="text"
               placeholder="Masukkan Barang Yang Ingin Dicari."
               value={query}
@@ -554,8 +621,8 @@ export default function SearchPage() {
             />
             {query && (
               <button
-                className={styles.clearBtn}
-                onClick={() => { setQuery(''); setResults(null); searchInputRef.current?.focus(); }}
+                className="bg-transparent border-none text-text-muted cursor-pointer flex items-center justify-center p-1 rounded-full transition-all duration-200 hover:bg-bg-tertiary hover:text-text-primary"
+                onClick={() => { setQuery(''); setResults(null); clearSession(); searchInputRef.current?.focus(); }}
                 title="Hapus"
               >
                 <X size={14} />
@@ -563,7 +630,10 @@ export default function SearchPage() {
             )}
           </div>
           <button
-            className={`${styles.monitorBtn} ${isMonitoring ? styles.monitorBtnActive : ''}`}
+            className={`h-11 inline-flex items-center justify-center gap-2 px-5 text-[13px] font-semibold cursor-pointer border rounded-lg whitespace-nowrap transition-all duration-200 ${isMonitoring
+              ? 'bg-bg-tertiary border-border-normal text-text-primary'
+              : 'bg-accent-primary border-transparent text-text-primary hover:bg-accent-secondary'
+              } disabled:opacity-40 disabled:cursor-not-allowed`}
             onClick={startMonitoring}
             disabled={!query.trim()}
           >
@@ -575,203 +645,193 @@ export default function SearchPage() {
             ) : (
               <>
                 <Play size={14} fill="currentColor" />
-                <span>Mulai Monitoring</span>
+                <span>Search</span>
               </>
             )}
           </button>
         </section>
 
-        {/* Bento Box 2: Live Status */}
-        <section className={`${styles.bentoBox} ${styles.statusPanel}`}>
-          <div className={styles.statusHeader}>
-            <div className={styles.statusDotWrapper}>
-              <span className={`${styles.statusDot} ${isMonitoring ? styles.statusDotActive : ''}`}></span>
-              <Activity size={14} className={styles.activityIcon} />
-            </div>
-            <span className={styles.statusTitle}>Status Sistem</span>
-          </div>
-          <div className={styles.statusContent}>
-            {scrapeStatus ? (
-              <p className={styles.statusMessage}>{scrapeStatus}</p>
-            ) : (
-              <p className={styles.statusMessageMuted}>Sistem siap. Masukkan kata kunci untuk memulai.</p>
-            )}
-          </div>
-        </section>
-
         {/* Bento Box 3: Filters (Desktop View only) */}
-        <section className={`${styles.bentoBox} ${styles.filtersPanel}`}>
-          <div className={styles.filtersHeader}>
-            <SlidersHorizontal size={14} className={styles.sectionIcon} />
-            <span className={styles.sectionTitle}>Penyaringan Lanjutan</span>
+        <section className="bg-bg-card border border-border-subtle rounded-xl p-5 flex flex-col gap-4 hover:border-border-normal hover:shadow-[0_4px_20px_rgba(9,13,27,0.4)] transition-all duration-200 col-span-1 row-start-2 h-full overflow-hidden hidden md:flex">
+          <div className="flex items-center gap-2 pb-3 border-b border-border-subtle">
+            <SlidersHorizontal size={14} className="text-text-secondary" />
+            <span className="text-[11px] font-bold uppercase tracking-wider text-text-primary">Penyaringan Lanjutan</span>
           </div>
-          <div className={styles.filtersContent}>
+          <div className="flex flex-col gap-4 flex-grow overflow-y-auto pr-1 thin-scrollbar">
             {renderFiltersContent()}
           </div>
         </section>
 
         {/* Mobile Filter Toggle Bar (Mobile View only) */}
-        <div className={styles.mobileFilterBar}>
+        <div className="flex md:hidden items-center justify-between w-full border border-border-subtle rounded-lg bg-bg-card p-3 shadow-md">
           <button
-            className={styles.mobileFilterBtn}
+            className="relative flex items-center gap-2 text-xs font-semibold text-text-secondary bg-transparent border-none cursor-pointer py-1"
             onClick={() => setIsFilterDrawerOpen(true)}
           >
             <SlidersHorizontal size={14} />
             <span>Filter & Urutan</span>
-            {hasActiveFilters && <span className={styles.filterDot}></span>}
+            {hasActiveFilters && <span className="absolute top-0.5 -right-1 w-2 h-2 rounded-full bg-accent-primary shadow-[0_0_6px_rgba(55,98,200,0.5)]"></span>}
           </button>
         </div>
 
-        {/* Bento Box 5: Main Results Container (Side-by-side matching filter panel height) */}
-        <div className={styles.resultsContainer}>
+        {/* Bento Box 5: Main Results Container */}
+        <div className="col-span-1 row-start-2 md:col-span-1 flex flex-col gap-3 h-full overflow-hidden">
           {/* Informative Stats & Active Filter Chips Bar */}
-          <div className={styles.informativeBar}>
-            <div className={styles.statCountBlock}>
-              <span className={styles.statCountValue}>{results ? filteredItems.length : 0}</span>
-              <span className={styles.statCountLabel}>Listing Ditemukan</span>
+          {results && (
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-bg-card/40 border border-border-subtle/80 rounded-xl p-3">
+              <div className="flex flex-col">
+                <span className="text-base font-bold text-text-primary">{results ? filteredItems.length : 0}</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-text-secondary">Listing Ditemukan</span>
+              </div>
+
+              {/* Render Active Filter Chips */}
+              <div className="flex flex-wrap gap-1.5">
+                {results && results.query && (
+                  <div className="inline-flex items-center bg-bg-tertiary border border-border-subtle/60 rounded-full px-2.5 py-1 text-[10px] font-semibold text-text-secondary" title="Pencarian Utama">
+                    <span>Query: "{results.query}"</span>
+                  </div>
+                )}
+
+                {sortBy !== 'relevance' && (
+                  <div className="inline-flex items-center gap-1.5 bg-bg-tertiary border border-border-subtle rounded-full px-2.5 py-1 text-[10px] font-semibold text-text-secondary hover:border-border-normal">
+                    <span>Urutan: {SORT_OPTIONS.find((o) => o.value === sortBy)?.label}</span>
+                    <button className="bg-transparent border-none p-0.5 rounded-full hover:bg-border-normal text-text-muted hover:text-text-primary cursor-pointer" onClick={() => setSortBy('relevance')}>
+                      <X size={10} />
+                    </button>
+                  </div>
+                )}
+
+                {minPrice && (
+                  <div className="inline-flex items-center gap-1.5 bg-bg-tertiary border border-border-subtle rounded-full px-2.5 py-1 text-[10px] font-semibold text-text-secondary hover:border-border-normal">
+                    <span>Min: Rp {Number(minPrice).toLocaleString('id-ID')}</span>
+                    <button className="bg-transparent border-none p-0.5 rounded-full hover:bg-border-normal text-text-muted hover:text-text-primary cursor-pointer" onClick={() => setMinPrice('')}>
+                      <X size={10} />
+                    </button>
+                  </div>
+                )}
+
+                {maxPrice && (
+                  <div className="inline-flex items-center gap-1.5 bg-bg-tertiary border border-border-subtle rounded-full px-2.5 py-1 text-[10px] font-semibold text-text-secondary hover:border-border-normal">
+                    <span>Max: Rp {Number(maxPrice).toLocaleString('id-ID')}</span>
+                    <button className="bg-transparent border-none p-0.5 rounded-full hover:bg-border-normal text-text-muted hover:text-text-primary cursor-pointer" onClick={() => setMaxPrice('')}>
+                      <X size={10} />
+                    </button>
+                  </div>
+                )}
+
+                {locations.length > 0 && (
+                  <div className="inline-flex items-center gap-1.5 bg-bg-tertiary border border-border-subtle rounded-full px-2.5 py-1 text-[10px] font-semibold text-text-secondary hover:border-border-normal">
+                    <span>Lokasi: {locations.map(l => `"${l}"`).join(', ')}</span>
+                    <button className="bg-transparent border-none p-0.5 rounded-full hover:bg-border-normal text-text-muted hover:text-text-primary cursor-pointer" onClick={() => setLocations([])}>
+                      <X size={10} />
+                    </button>
+                  </div>
+                )}
+
+                {isBarter === true && (
+                  <div className="inline-flex items-center gap-1.5 bg-bg-tertiary border border-border-subtle rounded-full px-2.5 py-1 text-[10px] font-semibold text-text-secondary hover:border-border-normal">
+                    <span>Khusus Tukar (BT / TT)</span>
+                    <button className="bg-transparent border-none p-0.5 rounded-full hover:bg-border-normal text-text-muted hover:text-text-primary cursor-pointer" onClick={() => setIsBarter(undefined)}>
+                      <X size={10} />
+                    </button>
+                  </div>
+                )}
+
+                {isOpenNego === true && (
+                  <div className="inline-flex items-center gap-1.5 bg-bg-tertiary border border-border-subtle rounded-full px-2.5 py-1 text-[10px] font-semibold text-text-secondary hover:border-border-normal">
+                    <span>Bisa Nego</span>
+                    <button className="bg-transparent border-none p-0.5 rounded-full hover:bg-border-normal text-text-muted hover:text-text-primary cursor-pointer" onClick={() => setIsOpenNego(undefined)}>
+                      <X size={10} />
+                    </button>
+                  </div>
+                )}
+
+                {isNoMinus === true && (
+                  <div className="inline-flex items-center gap-1.5 bg-bg-tertiary border border-border-subtle rounded-full px-2.5 py-1 text-[10px] font-semibold text-text-secondary hover:border-border-normal">
+                    <span>Tanpa Minus</span>
+                    <button className="bg-transparent border-none p-0.5 rounded-full hover:bg-border-normal text-text-muted hover:text-text-primary cursor-pointer" onClick={() => setIsNoMinus(undefined)}>
+                      <X size={10} />
+                    </button>
+                  </div>
+                )}
+
+                {isNoService === true && (
+                  <div className="inline-flex items-center gap-1.5 bg-bg-tertiary border border-border-subtle rounded-full px-2.5 py-1 text-[10px] font-semibold text-text-secondary hover:border-border-normal">
+                    <span>Tanpa Servis</span>
+                    <button className="bg-transparent border-none p-0.5 rounded-full hover:bg-border-normal text-text-muted hover:text-text-primary cursor-pointer" onClick={() => setIsNoService(undefined)}>
+                      <X size={10} />
+                    </button>
+                  </div>
+                )}
+
+                {completenessFilter !== 'all' && (
+                  <div className="inline-flex items-center gap-1.5 bg-bg-tertiary border border-border-subtle rounded-full px-2.5 py-1 text-[10px] font-semibold text-text-secondary hover:border-border-normal">
+                    <span>Kelengkapan: {completenessFilter === 'fullset' ? 'Fullset' : 'Unit Only'}</span>
+                    <button className="bg-transparent border-none p-0.5 rounded-full hover:bg-border-normal text-text-muted hover:text-text-primary cursor-pointer" onClick={() => setCompletenessFilter('all')}>
+                      <X size={10} />
+                    </button>
+                  </div>
+                )}
+
+                {connectivityFilter !== 'all' && (
+                  <div className="inline-flex items-center gap-1.5 bg-bg-tertiary border border-border-subtle rounded-full px-2.5 py-1 text-[10px] font-semibold text-text-secondary hover:border-border-normal">
+                    <span>Konektivitas: {connectivityFilter === 'all_operator' ? 'All Op' : 'WiFi Only'}</span>
+                    <button className="bg-transparent border-none p-0.5 rounded-full hover:bg-border-normal text-text-muted hover:text-text-primary cursor-pointer" onClick={() => setConnectivityFilter('all')}>
+                      <X size={10} />
+                    </button>
+                  </div>
+                )}
+
+                {results && results.synonymsExpanded.length > 0 && (
+                  <div className="inline-flex items-center bg-accent-primary/10 border border-accent-primary/20 rounded-full px-2.5 py-1 text-[10px] font-semibold text-accent-tertiary" title="Keyword diperluas otomatis">
+                    <span>Synonyms: {results.synonymsExpanded.slice(0, 2).join(', ')}</span>
+                  </div>
+                )}
+              </div>
             </div>
-
-            {/* Render Active Filter Chips */}
-            <div className={styles.activeFiltersList}>
-              {results && results.query && (
-                <div className={styles.filterChipStatic} title="Pencarian Utama">
-                  <span>Query: "{results.query}"</span>
-                </div>
-              )}
-
-              {sortBy !== 'relevance' && (
-                <div className={styles.filterChip}>
-                  <span>Urutan: {SORT_OPTIONS.find((o) => o.value === sortBy)?.label}</span>
-                  <button className={styles.clearChipBtn} onClick={() => setSortBy('relevance')}>
-                    <X size={10} />
-                  </button>
-                </div>
-              )}
-
-              {minPrice && (
-                <div className={styles.filterChip}>
-                  <span>Min: Rp {Number(minPrice).toLocaleString('id-ID')}</span>
-                  <button className={styles.clearChipBtn} onClick={() => setMinPrice('')}>
-                    <X size={10} />
-                  </button>
-                </div>
-              )}
-
-              {maxPrice && (
-                <div className={styles.filterChip}>
-                  <span>Max: Rp {Number(maxPrice).toLocaleString('id-ID')}</span>
-                  <button className={styles.clearChipBtn} onClick={() => setMaxPrice('')}>
-                    <X size={10} />
-                  </button>
-                </div>
-              )}
-
-              {locations.length > 0 && (
-                <div className={styles.filterChip}>
-                  <span>Lokasi: {locations.map(l => `"${l}"`).join(', ')}</span>
-                  <button className={styles.clearChipBtn} onClick={() => setLocations([])}>
-                    <X size={10} />
-                  </button>
-                </div>
-              )}
-
-              {isBarter === true && (
-                <div className={styles.filterChip}>
-                  <span>Khusus Tukar (BT / TT)</span>
-                  <button className={styles.clearChipBtn} onClick={() => setIsBarter(undefined)}>
-                    <X size={10} />
-                  </button>
-                </div>
-              )}
-
-              {isOpenNego === true && (
-                <div className={styles.filterChip}>
-                  <span>Bisa Nego</span>
-                  <button className={styles.clearChipBtn} onClick={() => setIsOpenNego(undefined)}>
-                    <X size={10} />
-                  </button>
-                </div>
-              )}
-
-              {isNoMinus === true && (
-                <div className={styles.filterChip}>
-                  <span>Tanpa Minus</span>
-                  <button className={styles.clearChipBtn} onClick={() => setIsNoMinus(undefined)}>
-                    <X size={10} />
-                  </button>
-                </div>
-              )}
-
-              {isNoService === true && (
-                <div className={styles.filterChip}>
-                  <span>Tanpa Servis</span>
-                  <button className={styles.clearChipBtn} onClick={() => setIsNoService(undefined)}>
-                    <X size={10} />
-                  </button>
-                </div>
-              )}
-
-              {completenessFilter !== 'all' && (
-                <div className={styles.filterChip}>
-                  <span>Kelengkapan: {completenessFilter === 'fullset' ? 'Fullset' : 'Unit Only'}</span>
-                  <button className={styles.clearChipBtn} onClick={() => setCompletenessFilter('all')}>
-                    <X size={10} />
-                  </button>
-                </div>
-              )}
-
-              {connectivityFilter !== 'all' && (
-                <div className={styles.filterChip}>
-                  <span>Konektivitas: {connectivityFilter === 'all_operator' ? 'All Op' : 'WiFi Only'}</span>
-                  <button className={styles.clearChipBtn} onClick={() => setConnectivityFilter('all')}>
-                    <X size={10} />
-                  </button>
-                </div>
-              )}
-
-              {results && results.synonymsExpanded.length > 0 && (
-                <div className={styles.filterChipExpanded} title="Keyword diperluas otomatis">
-                  <span>Synonyms: {results.synonymsExpanded.slice(0, 2).join(', ')}</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className={styles.scrollWrapper}>
+          )}
+          <div className="flex-grow flex flex-col justify-center min-h-0 overflow-hidden bg-bg-card border border-border-subtle rounded-xl p-5 hover:border-border-normal hover:shadow-[0_4px_20px_rgba(9,13,27,0.4)] transition-all duration-200">
             {/* Error message banner */}
             {error && (
-              <div className={styles.errorBanner}>
+              <div className="flex items-center bg-[#a3988f]/10 border border-[#a3988f]/20 rounded-lg p-3 text-xs text-danger mb-4 animate-fade-in">
                 <span>{error}</span>
               </div>
             )}
 
             {/* Loading indicator */}
             {loading && (
-              <div className={styles.grid}>
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={`skeleton-${i}`} className={styles.skeletonCard}>
-                    <div className={styles.skeletonImage} />
-                    <div className={styles.skeletonInfo}>
-                      <div className={styles.skeletonLineShort} />
-                      <div className={styles.skeletonLineLong} />
-                      <div className={styles.skeletonLineMedium} />
+              <div className="relative w-full h-full overflow-hidden">
+                {/* Left Fade Overlay */}
+                <div className="absolute top-0 left-0 bottom-4 w-8 bg-gradient-to-r from-bg-bg-card to-transparent pointer-events-none z-10" />
+                {/* Right Fade Overlay */}
+                <div className="absolute top-0 right-0 bottom-4 w-8 bg-gradient-to-l from-bg-bg-card to-transparent pointer-events-none z-10" />
+
+                <div className="grid grid-flow-col grid-rows-1 auto-cols-[310px] gap-4 overflow-x-auto overflow-y-hidden pb-4 w-full h-full max-h-[480px] thin-scrollbar">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={`skeleton-${i}`} className="bg-bg-card border border-border-subtle rounded-xl overflow-hidden flex flex-col h-full animate-pulse">
+                      <div className="w-full aspect-video bg-bg-tertiary" />
+                      <div className="p-4 flex flex-col gap-2">
+                        <div className="h-3 w-1/4 bg-bg-tertiary rounded" />
+                        <div className="h-4 w-3/4 bg-bg-tertiary rounded" />
+                        <div className="h-3 w-1/2 bg-bg-tertiary rounded" />
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             )}
 
-            {/* Live Monitoring Loader State (if monitoring is active and we haven't got data yet) */}
+            {/* Live Monitoring Loader State */}
             {!loading && isMonitoring && filteredItems.length === 0 && (
-              <div className={styles.monitoringLoaderContainer}>
-                <div className={styles.radarRing}>
-                  <div className={styles.radarPulse} />
-                  <Search size={32} className={styles.radarIcon} />
+              <div className="flex flex-col items-center justify-center py-16 text-center gap-4">
+                <div className="relative w-16 h-16 rounded-full bg-accent-primary/10 border border-accent-primary/30 flex items-center justify-center">
+                  <div className="absolute inset-0 rounded-full border border-accent-primary/50 animate-ping" />
+                  <Search size={32} className="text-accent-primary" />
                 </div>
                 <h3>Sedang Menyerap Data Live...</h3>
-                <p>{scrapeStatus || 'Menunggu data masuk dari Facebook Marketplace...'}</p>
-                <div className={styles.liveSpinnerBlock}>
-                  <span className={styles.livePulseDot} />
+                <p className="text-text-secondary text-sm">{scrapeStatus || 'Menunggu data masuk dari Facebook Marketplace...'}</p>
+                <div className="inline-flex items-center gap-2 bg-[#25d366]/10 border border-[#25d366]/20 rounded-full px-3 py-1 text-xs font-semibold text-[#25d366]">
+                  <span className="w-2 h-2 rounded-full bg-[#25d366] animate-pulse" />
                   <span>Sistem Aktif & Memindai</span>
                 </div>
               </div>
@@ -779,272 +839,294 @@ export default function SearchPage() {
 
             {/* Empty State: No search query */}
             {!loading && !isMonitoring && !results && !error && (
-              <div className={styles.emptyState}>
-                <div className={styles.emptyIconContainer}>
-                  <Search size={32} className={styles.emptyIcon} />
+              <div className="flex flex-col items-center justify-center py-16 px-6 text-center gap-4">
+                <div className="w-14 h-14 rounded-full bg-bg-primary border border-border-subtle flex items-center justify-center text-text-secondary opacity-80">
+                  <Search size={32} className="opacity-60" />
                 </div>
                 <h3>Mulai Pencarian Baru</h3>
-                <p>Masukkan kata kunci produk di atas lalu klik Mulai Monitoring untuk menyerap data Marketplace Facebook secara langsung.</p>
+                <p className="text-text-secondary text-sm max-w-md">Masukkan kata kunci produk di atas lalu klik Mulai Monitoring untuk menyerap data Marketplace Facebook secara langsung.</p>
               </div>
             )}
 
             {/* Empty State: Query has 0 results */}
             {!loading && !isMonitoring && results && filteredItems.length === 0 && (
-              <div className={styles.emptyState}>
-                <div className={styles.emptyIconContainer}>
-                  <SlidersHorizontal size={32} className={styles.emptyIcon} />
+              <div className="flex flex-col items-center justify-center py-16 px-6 text-center gap-4">
+                <div className="w-14 h-14 rounded-full bg-bg-primary border border-border-subtle flex items-center justify-center text-text-secondary opacity-80">
+                  <SlidersHorizontal size={32} className="opacity-60" />
                 </div>
                 <h3>Tidak Ada Data Ditemukan</h3>
-                <p>Tidak ada hasil yang sesuai dengan kriteria filter Anda saat ini. Coba perkecil batasan filter Anda.</p>
+                <p className="text-text-secondary text-sm max-w-md">Tidak ada hasil yang sesuai dengan kriteria filter Anda saat ini. Coba perkecil batasan filter Anda.</p>
               </div>
             )}
 
-            {/* Results Grid display: 2-Row Horizontal scrollable column flow */}
+            {/* Results Grid display: 1-Row Horizontal scrollable column flow */}
             {!loading && results && filteredItems.length > 0 && (
-              <div
-                className={styles.grid}
-                ref={scrollContainerRef}
-              >
-                {filteredItems.map((listing) => (
-                  <div key={listing.id} className={styles.gridCardWrapper}>
-                    <ListingCard
-                      listing={listing}
-                      searchQuery={query}
-                      onClick={() => setSelectedListing(listing)}
-                    />
-                  </div>
-                ))}
+              <div className="relative w-full h-full overflow-hidden">
+                {/* Left Fade Overlay */}
+                <div className="absolute top-0 left-0 bottom-4 w-8 bg-gradient-to-r from-bg-bg-card to-transparent pointer-events-none z-10" />
+                {/* Right Fade Overlay */}
+                <div className="absolute top-0 right-0 bottom-4 w-8 bg-gradient-to-l from-bg-bg-card to-transparent pointer-events-none z-10" />
+
+                <div
+                  className="grid grid-flow-col grid-rows-1 auto-cols-[310px] gap-4 overflow-x-auto overflow-y-hidden pb-4 smooth-scroll w-full h-full max-h-[480px] thin-scrollbar"
+                  ref={scrollContainerRef}
+                >
+                  {filteredItems.map((listing) => (
+                    <div key={listing.id} className="h-full w-full">
+                      <ListingCard
+                        listing={listing}
+                        searchQuery={query}
+                        onClick={() => setSelectedListing(listing)}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
-        </div>
-      </div>
 
-      {/* ── Mobile Filter Bottom Sheet Drawer ── */}
-      {isFilterDrawerOpen && (
-        <div className={styles.drawerOverlay} onClick={() => setIsFilterDrawerOpen(false)}>
-          <div className={styles.drawerContainer} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.drawerHeader}>
-              <span className={styles.drawerTitle}>Pengaturan Filter</span>
-              <button className={styles.drawerCloseBtn} onClick={() => setIsFilterDrawerOpen(false)}>
-                <X size={16} />
-              </button>
-            </div>
-            <div className={styles.drawerBody}>
-              {renderFiltersContent()}
-            </div>
-            <div className={styles.drawerFooter}>
-              <button className={styles.applyBtn} onClick={() => setIsFilterDrawerOpen(false)}>
-                Terapkan Filter
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* ── Detail Modal (Asymmetric split design) ── */}
-      {selectedListing && (
-        <div className={styles.modalOverlay} onClick={() => setSelectedListing(null)}>
-          <div className={styles.modalContainer} onClick={(e) => e.stopPropagation()}>
-            {/* Modal Body */}
-            <div className={styles.modalBody}>
-              {/* Left Column: Image Area */}
-              <div className={styles.modalLeftColumn}>
-                {selectedListing.imageUrl ? (
-                  <img
-                    src={selectedListing.imageUrl}
-                    alt={selectedListing.title || '(Tanpa judul)'}
-                    className={styles.modalImage}
-                  />
-                ) : (
-                  <div className={styles.modalImagePlaceholder}>🖼️</div>
-                )}
-                <div className={styles.modalConfidenceTag}>
-                  Confidence: {Math.round(selectedListing.confidenceScore * 100)}%
+
+          {/* ── Mobile Filter Bottom Sheet Drawer ── */}
+          {isFilterDrawerOpen && (
+            <div className="fixed inset-0 bg-black/60 z-50 flex justify-end" onClick={() => setIsFilterDrawerOpen(false)}>
+              <div className="w-[280px] bg-bg-secondary border-l border-border-subtle flex flex-col h-full shadow-2xl p-5 gap-4" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between pb-3 border-b border-border-subtle">
+                  <span className="text-sm font-bold text-text-primary uppercase tracking-wider">Pengaturan Filter</span>
+                  <button className="bg-transparent border-none text-text-secondary hover:text-text-primary cursor-pointer" onClick={() => setIsFilterDrawerOpen(false)}>
+                    <X size={16} />
+                  </button>
                 </div>
-                <button className={styles.modalCloseCircle} onClick={() => setSelectedListing(null)}>
+                <div className="flex-1 overflow-y-auto flex flex-col gap-4 py-2">
+                  {renderFiltersContent()}
+                </div>
+                <div className="pt-4 border-t border-border-subtle">
+                  <button className="w-full h-10 bg-accent-primary text-text-primary rounded-lg text-xs font-bold hover:bg-accent-secondary cursor-pointer" onClick={() => setIsFilterDrawerOpen(false)}>
+                    Terapkan Filter
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Detail Modal ── */}
+          {selectedListing && (
+            <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4" onClick={() => setSelectedListing(null)}>
+              <div className="w-full max-w-4xl bg-bg-secondary border border-border-subtle rounded-2xl overflow-hidden shadow-2xl animate-fade-in relative" onClick={(e) => e.stopPropagation()}>
+                {/* Modal Close Button (Top Right of entire Modal) */}
+                <button className="absolute top-4 right-4 w-8 h-8 rounded-full bg-black/40 border border-border-subtle flex items-center justify-center text-text-primary hover:text-white cursor-pointer transition-colors z-50 backdrop-blur" onClick={() => setSelectedListing(null)}>
                   <X size={16} />
                 </button>
-              </div>
 
-              {/* Right Column: Detailed Info */}
-              <div className={styles.modalRightColumn}>
-                <h2 className={styles.modalTitle}>{selectedListing.title || '(Tanpa judul)'}</h2>
+                {/* Modal Body */}
+                <div className="flex flex-col md:flex-row h-full max-h-[85vh]">
+                  {/* Left Column: Image Area */}
+                  <div className="relative md:w-1/2 aspect-video md:aspect-auto bg-bg-primary overflow-hidden flex items-center justify-center">
+                    {selectedListing.imageUrl ? (
+                      <img
+                        src={selectedListing.imageUrl}
+                        alt={selectedListing.title || '(Tanpa judul)'}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="text-5xl opacity-30">🖼️</div>
+                    )}
+                    <div className="absolute bottom-4 left-4 bg-black/60 border border-border-subtle text-[10px] text-text-primary font-semibold px-2 py-1 rounded backdrop-blur">
+                      Confidence: {Math.round(selectedListing.confidenceScore * 100)}%
+                    </div>
+                  </div>
 
-                {/* Price Display Block */}
-                <div className={styles.modalPriceBlock}>
-                  {selectedListing.actualPriceAmount !== null ? (
-                    (() => {
-                      const scaledPrice = selectedListing.actualPriceAmount >= 100 && selectedListing.actualPriceAmount <= 9999
-                        ? selectedListing.actualPriceAmount * 1000
-                        : selectedListing.actualPriceAmount;
-                      return (
-                        <div className={styles.modalActualPrice}>
-                          <span className={styles.modalPriceHeading}>Harga Deteksi AI</span>
-                          <span className={styles.modalPriceVal}>
-                            Rp {scaledPrice.toLocaleString('id-ID')}
-                          </span>
-                          {selectedListing.isPriceFake && selectedListing.listedPrice && (
-                            <span className={styles.modalRawPriceText}>
-                              Harga Listed Facebook: {overrideCurrencyToRupiah(selectedListing.listedPrice)}
-                            </span>
-                          )}
+                  {/* Right Column: Detailed Info */}
+                  <div className="md:w-1/2 p-6 overflow-y-auto flex flex-col gap-5 thin-scrollbar">
+                    <h2 className="text-lg font-bold text-text-primary m-0 pr-8">{selectedListing.title || '(Tanpa judul)'}</h2>
+
+                    {/* Price Display Block */}
+                    <div className="bg-bg-primary/50 border border-border-subtle/80 rounded-xl p-4 flex flex-col gap-1">
+                      {selectedListing.actualPriceAmount !== null ? (
+                        (() => {
+                          const scaledPrice = selectedListing.actualPriceAmount >= 100 && selectedListing.actualPriceAmount <= 9999
+                            ? selectedListing.actualPriceAmount * 1000
+                            : selectedListing.actualPriceAmount;
+                          return (
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-text-secondary">Harga Barang</span>
+                              <span className="text-2xl font-black text-accent-primary">
+                                Rp {scaledPrice.toLocaleString('id-ID')}
+                              </span>
+                              {selectedListing.isPriceFake && selectedListing.listedPrice && (
+                                <span className="text-xs text-text-secondary">
+                                  Harga Listed Facebook: {overrideCurrencyToRupiah(selectedListing.listedPrice)}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()
+                      ) : selectedListing.listedPrice ? (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-text-secondary">Harga Terdaftar</span>
+                          <span className="text-2xl font-black text-accent-primary">{overrideCurrencyToRupiah(selectedListing.listedPrice)}</span>
                         </div>
-                      );
-                    })()
-                  ) : selectedListing.listedPrice ? (
-                    <div className={styles.modalListedOnlyPrice}>
-                      <span className={styles.modalPriceHeading}>Harga Terdaftar</span>
-                      <span className={styles.modalPriceVal}>{overrideCurrencyToRupiah(selectedListing.listedPrice)}</span>
+                      ) : (
+                        <span className="text-2xl font-black text-accent-primary font-bold">Hubungi Penjual</span>
+                      )}
                     </div>
-                  ) : (
-                    <span className={styles.modalPriceVal}>Hubungi Penjual</span>
-                  )}
-                </div>
 
-                {/* Info List Items */}
-                <div className={styles.modalDetailsList}>
-                  <div className={styles.modalDetailItem}>
-                    <div className={styles.modalItemHeader}>
-                      <MapPin size={14} className={styles.modalItemIcon} />
-                      <span className={styles.modalItemLabel}>Lokasi</span>
-                    </div>
-                    <span className={styles.modalItemValue}>{selectedListing.location || '-'}</span>
-                  </div>
+                    {/* Info List Items */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-bg-primary/30 border border-border-subtle/50 rounded-lg p-2.5 flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5 text-text-secondary">
+                          <MapPin size={14} className="text-info opacity-75" />
+                          <span className="text-[10px] font-bold uppercase tracking-wider">Lokasi</span>
+                        </div>
+                        <span className="text-xs font-semibold text-text-primary">{selectedListing.location || '-'}</span>
+                      </div>
 
-                  <div className={styles.modalDetailItem}>
-                    <div className={styles.modalItemHeader}>
-                      <Package size={14} className={styles.modalItemIcon} />
-                      <span className={styles.modalItemLabel}>Kondisi</span>
-                    </div>
-                    <span className={styles.modalItemValue}>{selectedListing.condition || '-'}</span>
-                  </div>
+                      <div className="bg-bg-primary/30 border border-border-subtle/50 rounded-lg p-2.5 flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5 text-text-secondary">
+                          <Package size={14} className="text-info opacity-75" />
+                          <span className="text-[10px] font-bold uppercase tracking-wider">Kondisi</span>
+                        </div>
+                        <span className="text-xs font-semibold text-text-primary">{selectedListing.condition || '-'}</span>
+                      </div>
 
-                  <div className={styles.modalDetailItem}>
-                    <div className={styles.modalItemHeader}>
-                      <User size={14} className={styles.modalItemIcon} />
-                      <span className={styles.modalItemLabel}>Penjual</span>
+                      <div className="bg-bg-primary/30 border border-border-subtle/50 rounded-lg p-2.5 flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5 text-text-secondary">
+                          <User size={14} className="text-info opacity-75" />
+                          <span className="text-[10px] font-bold uppercase tracking-wider">Penjual</span>
+                        </div>
+                        <span className="text-xs font-semibold text-text-primary">
+                          {selectedListing.sellerUrl ? (
+                            <a
+                              href={formatExternalUrl(selectedListing.sellerUrl)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-accent-primary hover:text-accent-secondary"
+                            >
+                              {selectedListing.seller || 'Buka Profil Penjual'}
+                            </a>
+                          ) : (
+                            selectedListing.seller || '-'
+                          )}
+                        </span>
+                      </div>
+
+                      <div className="bg-bg-primary/30 border border-border-subtle/50 rounded-lg p-2.5 flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5 text-text-secondary">
+                          <Clock size={14} className="text-info opacity-75" />
+                          <span className="text-[10px] font-bold uppercase tracking-wider">Diposting</span>
+                        </div>
+                        <span className="text-xs font-semibold text-text-primary">{selectedListing.postedAt || '-'}</span>
+                      </div>
                     </div>
-                    <span className={styles.modalItemValue}>
-                      {selectedListing.sellerUrl ? (
+
+                    {/* Flags/Tags section */}
+                    {(selectedListing.isBarter || selectedListing.isTradeIn || selectedListing.isNett) && (
+                      <div className="flex gap-2 flex-wrap">
+                        {selectedListing.isBarter && (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                            🔄 Barter
+                          </span>
+                        )}
+                        {selectedListing.isTradeIn && (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-indigo-500/10 border border-indigo-500/30 text-indigo-400">
+                            ↔️ Tukar Tambah
+                          </span>
+                        )}
+                        {selectedListing.isNett && (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-slate-500/10 border border-slate-500/30 text-slate-400">
+                            🔒 Nett
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* AI Detected Terms Keywords */}
+                    {selectedListing.detectedKeywords && selectedListing.detectedKeywords.length > 0 && (
+                      <div className="flex flex-col gap-2">
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-text-secondary">Istilah Terdeteksi AI</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {selectedListing.detectedKeywords.map((kw, i) => {
+                            const IconComponent = CATEGORY_ICONS[kw.category] || Sparkles;
+                            return (
+                              <div key={i} className="flex items-center gap-2.5 bg-bg-primary/45 border border-border-subtle/60 hover:border-border-normal rounded-lg px-3 py-2 text-xs text-text-secondary transition-all duration-150 hover:bg-bg-tertiary/30" title={kw.meaning}>
+                                <IconComponent size={14} className="text-accent-primary shrink-0" />
+                                <span className="font-mono font-bold text-[10px] uppercase text-text-primary bg-accent-primary/10 border border-accent-primary/20 px-1.5 py-0.5 rounded shrink-0">{kw.term}</span>
+                                <span className="truncate text-text-primary/90">{kw.meaning}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Detailed Description */}
+                    <div className="flex flex-col gap-2">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-text-secondary">Deskripsi Lengkap</h4>
+                      <p className="text-xs text-text-secondary leading-relaxed bg-bg-primary/20 p-3 rounded-lg border border-border-subtle/40 whitespace-pre-wrap">
+                        {selectedListing.description || '(Tidak ada deskripsi dari penjual)'}
+                      </p>
+                    </div>
+
+
+                    {/* Primary Redirect Action */}
+                    <div className="flex gap-2">
+                      {getWhatsAppLink(selectedListing.title, selectedListing.description) && (
                         <a
-                          href={formatExternalUrl(selectedListing.sellerUrl)}
+                          href={getWhatsAppLink(selectedListing.title, selectedListing.description)!}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className={styles.sellerLink}
+                          className="flex-1 h-10 rounded-lg bg-[#25d366] text-white text-xs font-bold flex items-center justify-center transition-transform hover:scale-101 shadow-md shadow-[#25d366]/20"
                         >
-                          {selectedListing.seller || 'Buka Profil Penjual'}
+                          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style={{ marginRight: '6px' }}>
+                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.746.953 3.71 1.458 5.704 1.459h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                          </svg>
+                          <span>Hub WA</span>
                         </a>
-                      ) : (
-                        selectedListing.seller || '-'
                       )}
-                    </span>
-                  </div>
 
-                  <div className={styles.modalDetailItem}>
-                    <div className={styles.modalItemHeader}>
-                      <Clock size={14} className={styles.modalItemIcon} />
-                      <span className={styles.modalItemLabel}>Diposting</span>
-                    </div>
-                    <span className={styles.modalItemValue}>{selectedListing.postedAt || '-'}</span>
-                  </div>
-                </div>
-
-                {/* Flags/Tags section */}
-                {(selectedListing.isBarter || selectedListing.isTradeIn || selectedListing.isNett) && (
-                  <div className={styles.modalFlags}>
-                    {selectedListing.isBarter && <span className={styles.flagPillBarter}>🔄 Barter</span>}
-                    {selectedListing.isTradeIn && <span className={styles.flagPillTrade}>↔️ Tukar Tambah</span>}
-                    {selectedListing.isNett && <span className={styles.flagPillNett}>🔒 Nett</span>}
-                  </div>
-                )}
-
-                {/* AI Detected Terms Keywords */}
-                {selectedListing.detectedKeywords && selectedListing.detectedKeywords.length > 0 && (
-                  <div className={styles.modalKeywordsSection}>
-                    <h4 className={styles.modalSectionTitle}>Istilah Terdeteksi AI</h4>
-                    <div className={styles.modalKeywordsGrid}>
-                      {selectedListing.detectedKeywords.map((kw, i) => {
-                        const IconComponent = CATEGORY_ICONS[kw.category] || Sparkles;
-                        return (
-                          <div key={i} className={styles.keywordCard} title={kw.meaning}>
-                            <IconComponent size={12} className={styles.keywordIcon} />
-                            <span className={styles.keywordTerm}>{kw.term}</span>
-                            <span className={styles.keywordDivider}>:</span>
-                            <span className={styles.keywordMeaning}>{kw.meaning}</span>
-                          </div>
-                        );
-                      })}
+                      <a
+                        href={selectedListing.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 h-10 rounded-lg bg-accent-primary text-text-primary text-xs font-bold flex items-center justify-center gap-1.5 transition-transform hover:scale-101"
+                      >
+                        <span>Buka di FB Marketplace</span>
+                        <ExternalLink size={14} />
+                      </a>
                     </div>
                   </div>
-                )}
-
-                {/* Detailed Description */}
-                <div className={styles.modalDescSection}>
-                  <h4 className={styles.modalSectionTitle}>Deskripsi Lengkap</h4>
-                  <p className={styles.modalDescText}>
-                    {selectedListing.description || '(Tidak ada deskripsi dari penjual)'}
-                  </p>
-                </div>
-
-                {/* Primary Redirect Action */}
-                <div className={styles.modalActions}>
-                  {getWhatsAppLink(selectedListing.title, selectedListing.description) && (
-                    <a
-                      href={getWhatsAppLink(selectedListing.title, selectedListing.description)!}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={styles.whatsappBtn}
-                    >
-                      <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style={{ marginRight: '6px' }}>
-                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.746.953 3.71 1.458 5.704 1.459h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-                      </svg>
-                      <span>Hub WA</span>
-                    </a>
-                  )}
-
-                  <a
-                    href={selectedListing.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={styles.primaryRedirectBtn}
-                  >
-                    <span>Buka di Facebook Marketplace</span>
-                    <ExternalLink size={14} />
-                  </a>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          )}
 
-      {/* ── Custom Alert Modal ── */}
-      {customAlert && (
-        <div className={styles.alertOverlay} onClick={() => setCustomAlert(null)}>
-          <div className={styles.alertContainer} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.alertHeader}>
-              <div className={`${styles.alertIconContainer} ${
-                customAlert.type === 'error' ? styles.alertIconError :
-                customAlert.type === 'warning' ? styles.alertIconWarning :
-                customAlert.type === 'success' ? styles.alertIconSuccess :
-                styles.alertIconInfo
-              }`}>
-                <AlertTriangle size={18} />
+          {/* ── Custom Alert Modal ── */}
+          {customAlert && (
+            <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4" onClick={() => setCustomAlert(null)}>
+              <div className="w-full max-w-sm bg-bg-secondary border border-border-subtle rounded-xl p-5 flex flex-col gap-4 shadow-2xl animate-fade-in" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${customAlert.type === 'error' ? 'bg-danger/15 text-danger' :
+                    customAlert.type === 'warning' ? 'bg-warning/15 text-accent-tertiary' :
+                      customAlert.type === 'success' ? 'bg-green-500/15 text-green-500' :
+                        'bg-accent-primary/15 text-accent-primary'
+                    }`}>
+                    <AlertTriangle size={18} />
+                  </div>
+                  <span className="text-sm font-bold text-text-primary">{customAlert.title || 'Pemberitahuan'}</span>
+                </div>
+                <div className="text-xs text-text-secondary leading-normal">
+                  {customAlert.message}
+                </div>
+                <div className="flex justify-end">
+                  <button className="h-8 px-4 bg-bg-tertiary text-text-primary border border-border-subtle rounded text-xs font-bold hover:bg-border-normal cursor-pointer" onClick={() => setCustomAlert(null)}>
+                    OK
+                  </button>
+                </div>
               </div>
-              <span className={styles.alertTitle}>{customAlert.title || 'Pemberitahuan'}</span>
             </div>
-            <div className={styles.alertBody}>
-              {customAlert.message}
-            </div>
-            <div className={styles.alertFooter}>
-              <button className={styles.alertBtn} onClick={() => setCustomAlert(null)}>
-                OK
-              </button>
-            </div>
-          </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

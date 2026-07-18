@@ -56,6 +56,7 @@ app.use((_req, res) => {
 app.use(errorHandler);
 
 import { startCleanupScheduler } from './utils/cleanup.service';
+import { reanalyzeAllListings } from './utils/reanalyze.service';
 
 // ─── Start Server ─────────────────────────────────────────────────────────────
 app.listen(config.port, () => {
@@ -65,6 +66,11 @@ app.listen(config.port, () => {
   
   // Jalankan scheduler pembersihan listing lama (> 24 jam)
   startCleanupScheduler();
+  
+  // Jalankan re-analisis untuk memperbarui data lama di database dengan rule baru
+  reanalyzeAllListings().catch((err) => {
+    log.error('Gagal menjalankan re-analisis startup', err);
+  });
 });
 
 export default app;

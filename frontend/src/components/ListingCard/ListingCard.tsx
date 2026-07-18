@@ -1,6 +1,5 @@
 import { MapPin, ShieldAlert, Award } from 'lucide-react';
 import type { Listing, DictionaryMatch } from '../../types';
-import styles from './ListingCard.module.css';
 
 interface Props {
   listing: Listing;
@@ -110,73 +109,76 @@ export default function ListingCard({ listing, searchQuery = '', onClick }: Prop
   const metaText = metaParts.join(' • ');
 
   return (
-    <article className={styles.card} onClick={onClick}>
+    <article 
+      className="group bg-bg-card border border-border-subtle rounded-xl overflow-hidden flex flex-col transition-all duration-200 cursor-pointer relative h-full shadow-sm hover:shadow-md hover:border-border-normal hover:-translate-y-0.5" 
+      onClick={onClick}
+    >
       {/* ── Thumbnail (16:9 Aspect Ratio) ── */}
-      <div className={styles.imageContainer}>
+      <div className="relative w-full aspect-video bg-bg-tertiary overflow-hidden shrink-0">
         {listing.imageUrl ? (
           <img
             src={listing.imageUrl}
             alt={displayTitle}
-            className={styles.image}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-102"
             loading="lazy"
             onError={(e) => {
               (e.target as HTMLImageElement).style.display = 'none';
             }}
           />
         ) : (
-          <div className={styles.imagePlaceholder}>
+          <div className="flex items-center justify-center h-full text-3xl bg-bg-tertiary opacity-30">
             <span>🖼️</span>
           </div>
         )}
         
         {/* Confidence Badge */}
-        <div className={styles.confidenceBadge}>
-          <Award size={10} className={styles.confidenceIcon} />
+        <div className="absolute top-2 right-2 bg-bg-primary/75 backdrop-blur border border-border-subtle text-text-primary text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded flex items-center gap-1 z-10">
+          <Award size={10} className="text-accent-tertiary" />
           <span>{Math.round(confidenceScore * 100)}%</span>
         </div>
 
         {/* WhatsApp Indicator Badge */}
         {hasWhatsAppNumber(title || '', description || '') && (
-          <div className={styles.waBadge} title="Deskripsi/judul mencantumkan Nomor WA/HP">
-            <span className={styles.waDot} />
+          <div className="absolute top-2 left-2 bg-[#25d366]/95 backdrop-blur border border-white/20 text-white text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 z-10 shadow-[0_2px_8px_rgba(37,211,102,0.3)]" title="Deskripsi/judul mencantumkan Nomor WA/HP">
+            <span className="w-1.5 h-1.5 bg-white rounded-full inline-block animate-pulse" />
             <span>WA Active</span>
           </div>
         )}
       </div>
 
       {/* ── Content Area ── */}
-      <div className={styles.content}>
+      <div className="p-4 flex flex-col gap-2 flex-grow">
         {/* Meta Info: Location & Posted At & Condition */}
         {metaText && (
-          <div className={styles.metaRow}>
-            <MapPin size={10} className={styles.metaIcon} />
-            <span className={styles.metaText}>{metaText}</span>
+          <div className="flex items-center gap-1 text-text-secondary">
+            <MapPin size={10} className="text-info opacity-80 shrink-0" />
+            <span className="text-[11px] font-medium whitespace-nowrap overflow-hidden text-ellipsis">{metaText}</span>
           </div>
         )}
 
         {/* Title */}
-        <h3 className={styles.title}>
+        <h3 className="text-sm font-semibold text-text-primary leading-normal line-clamp-2 m-0 min-h-[40px] group-hover:text-accent-tertiary transition-colors">
           {highlightText(displayTitle, searchQuery)}
         </h3>
 
         {/* Description Preview */}
         {description ? (
-          <p className={styles.description}>
+          <p className="text-xs text-text-secondary leading-relaxed line-clamp-3 my-1 min-h-[54px]">
             {highlightText(description, searchQuery)}
           </p>
         ) : (
-          <p className={styles.descriptionLoading}>
+          <p className="text-[11px] text-text-muted leading-normal my-1 min-h-[54px] bg-accent-tertiary/4 border border-dashed border-accent-tertiary/25 rounded p-2 flex items-center justify-center text-center">
             ⏳ <em>Deskripsi sedang dimuat. Produk mungkin otomatis terhapus jika deskripsi tidak sesuai filter Anda...</em>
           </p>
         )}
 
         {/* AI Detected Term Keywords (Soft pills) */}
         {keywords.length > 0 && (
-          <div className={styles.keywords}>
+          <div className="flex flex-wrap gap-1.5 mt-1">
             {keywords.slice(0, 3).map((kw, i) => (
               <span
                 key={i}
-                className={styles.tagPill}
+                className="inline-flex items-center gap-1 bg-accent-tertiary/8 border border-accent-tertiary/20 rounded px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary transition-all hover:bg-accent-tertiary/15 hover:border-accent-tertiary/40 hover:text-text-primary"
                 title={`${kw.term}: ${kw.meaning}`}
               >
                 <span>{CATEGORY_ICONS[kw.category] ?? '📌'}</span>
@@ -187,21 +189,21 @@ export default function ListingCard({ listing, searchQuery = '', onClick }: Prop
         )}
 
         {/* Price & Badges Row (At the bottom of the card) */}
-        <div className={styles.footerRow}>
+        <div className="mt-auto flex items-center justify-between gap-2 border-t border-border-subtle pt-3">
           {/* Price Tag (French Blue 500) */}
-          <div className={styles.priceContainer}>
+          <div className="flex items-center">
             {hasActualPrice ? (
               (() => {
                 const scaledPrice = actualPriceAmount! >= 100 && actualPriceAmount! <= 9999
                   ? actualPriceAmount! * 1000
                   : actualPriceAmount!;
                 return (
-                  <div className={styles.actualPrice}>
-                    <span className={styles.priceVal}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-lg font-bold text-accent-primary tracking-tight">
                       {formatPrice(scaledPrice)}
                     </span>
                     {listedPrice && isPriceFake && (
-                      <span className={styles.clickbaitLabel} title={`Harga tertera: ${overrideCurrencyToRupiah(listedPrice)}`}>
+                      <span className="inline-flex items-center gap-0.5 bg-danger/12 border border-danger/25 text-text-secondary text-[9px] font-semibold px-1 py-0.5 rounded uppercase tracking-wide" title={`Harga tertera: ${overrideCurrencyToRupiah(listedPrice)}`}>
                         <ShieldAlert size={10} /> Fake Price
                       </span>
                     )}
@@ -209,20 +211,20 @@ export default function ListingCard({ listing, searchQuery = '', onClick }: Prop
                 );
               })()
             ) : listedPrice ? (
-              <div className={styles.listedPrice}>
+              <div className="text-sm font-semibold text-text-secondary">
                 <span>{overrideCurrencyToRupiah(listedPrice)}</span>
               </div>
             ) : (
-              <span className={styles.noPrice}>Hubungi Penjual</span>
+              <span className="text-xs font-medium text-text-muted">Hubungi Penjual</span>
             )}
           </div>
 
           {/* Dynamic Badges */}
           {(isBarter || isTradeIn || isNett) && (
-            <div className={styles.badgeRow}>
-              {isBarter && <span className={styles.badgeWarning}>BT</span>}
-              {isTradeIn && <span className={styles.badgeAccent}>TT</span>}
-              {isNett && <span className={styles.badgeMuted}>Nett</span>}
+            <div className="flex gap-1 flex-wrap shrink-0">
+              {isBarter && <span className="text-[9px] font-semibold bg-warning/12 border border-warning/25 text-accent-tertiary px-1 py-0.5 rounded">BT</span>}
+              {isTradeIn && <span className="text-[9px] font-semibold bg-accent-primary/12 border border-accent-primary/25 text-text-primary px-1 py-0.5 rounded">TT</span>}
+              {isNett && <span className="text-[9px] font-semibold bg-text-muted/12 border border-text-muted/25 text-text-secondary px-1 py-0.5 rounded">Nett</span>}
             </div>
           )}
         </div>

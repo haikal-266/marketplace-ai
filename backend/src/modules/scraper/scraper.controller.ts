@@ -68,14 +68,29 @@ router.get('/stream', (req, res) => {
   });
 
   const sendEvent = (event: string, data: any) => {
+    if (res.writableEnded) return; // Jangan kirim jika koneksi sudah ditutup
     res.write(`event: ${event}\n`);
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
 
   sendEvent('status', { status: 'connected' });
 
+  // Counter untuk tracking listing yang masih diproses pipeline
+  let pendingCount = 0;
+  let scraperDone = false;
+
+  // Fungsi untuk menutup koneksi hanya setelah semua listing selesai diproses
+  const tryFinalize = () => {
+    if (scraperDone && pendingCount === 0) {
+      log.info('Semua listing selesai diproses pipeline, menutup SSE stream.');
+      sendEvent('status', { status: 'done' });
+      res.end();
+    }
+  };
+
   // Handle incoming listings from Python scraper
   const onListing = async (rawListing: any) => {
+    pendingCount++;
     try {
       // Build pipeline on the fly (optimally, we'd cache it, but this is fine for now)
       const pipeline = await buildPipeline();
@@ -85,16 +100,23 @@ router.get('/stream', (req, res) => {
       sendEvent('listing', processed);
     } catch (err) {
       log.error('Pipeline gagal untuk 1 listing', err);
+    } finally {
+      pendingCount--;
+      // Cek apakah ini listing terakhir dan scraper sudah selesai
+      tryFinalize();
     }
   };
 
   const onDone = () => {
-    sendEvent('status', { status: 'done' });
-    res.end();
+    // Scraper Python selesai, tapi mungkin masih ada listing yang diproses pipeline
+    scraperDone = true;
+    log.info(`Scraper Python selesai. Masih ada ${pendingCount} listing dalam antrian pipeline.`);
+    tryFinalize(); // Langsung finalize jika tidak ada yang pending
   };
 
   const onExhausted = () => {
     sendEvent('status', { status: 'exhausted' });
+    // Jangan tutup koneksi — scraperDone akan di-set saat event 'done' tiba dari scraper
   };
 
   const onFacebookBlocked = () => {

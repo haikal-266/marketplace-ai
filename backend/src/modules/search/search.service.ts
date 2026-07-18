@@ -111,15 +111,49 @@ class SearchService {
   ): Promise<SearchResult> {
     const allQueries = [query, ...synonyms];
 
-    // Build OR conditions untuk FTS dengan semua sinonim
-    const tsvectorConditions = allQueries
-      .map((q) => `search_vector @@ plainto_tsquery('simple', '${this.escapeSql(q)}')`)
+    // FTS filtering HANYA pada normalized_title (bukan search_vector yang include description)
+    // Ini mencegah item lolos filter hanya karena description-nya menyebut kata query
+    // Rule: produk harus relevan dari JUDUL-nya, bukan deskripsi
+    const titleFtsConditions = allQueries
+      .map((q) => `to_tsvector('simple', COALESCE(normalized_title, '')) @@ plainto_tsquery('simple', '${this.escapeSql(q)}')`)
       .join(' OR ');
 
-    // FTS rank — rata-rata rank dari semua query terms
+    // FTS rank — tetap pakai search_vector (title+description) untuk scoring agar akurat
+    // Scoring boleh mempertimbangkan description, tapi FILTER tidak
     const rankExpressions = allQueries
       .map((q) => `ts_rank(search_vector, plainto_tsquery('simple', '${this.escapeSql(q)}'))`)
       .join(' + ');
+
+    // Token presence: MINIMUM token matching berbasis persentase
+    // Aturan: semakin panjang query, semakin banyak token yang harus match di title
+    //   - 1 token  → 1 harus match (100%)
+    //   - 2 token  → 2 harus match (100%) → "mi mix": KEDUA kata wajib ada di title
+    //   - 3 token  → 3 harus match (100%)
+    //   - 5 token  → 4 harus match (80%)
+    //   - 10 token → 8 harus match (80%)
+    const queryTokens = query.trim().toLowerCase().split(/\s+/).filter(t => t.length >= 2);
+    const totalTokens = queryTokens.length;
+    // Minimum token yang harus match: ceil(total * 0.8), minimal 1
+    const requiredMatches = totalTokens > 0 ? Math.max(1, Math.ceil(totalTokens * 0.8)) : 0;
+
+    // Build SQL expression: hitung berapa token yang ada di normalized_title
+    // Setiap token yang match berkontribusi 1 poin
+    const tokenMatchExpression = totalTokens > 0
+      ? queryTokens
+          .map(t => `(CASE WHEN normalized_title ILIKE '%${this.escapeSql(t)}%' THEN 1 ELSE 0 END)`)
+          .join(' + ')
+      : '1';
+
+    // Kondisi: total token yang match >= requiredMatches
+    // Ini jadi gate utama — produk tidak lolos jika tidak cukup token match di title
+    const tokenConditions = totalTokens > 0
+      ? `(${tokenMatchExpression}) >= ${requiredMatches}`
+      : '1=1';
+
+    // Minimum fuzzy similarity threshold: 0.25 (HANYA pada title)
+    const fuzzyConditions = allQueries
+      .map((q) => `similarity(normalized_title, '${this.escapeSql(q)}') >= 0.25`)
+      .join(' OR ');
 
     const sql = `
       WITH ranked AS (
@@ -134,11 +168,8 @@ class SearchService {
           search_vector::text as search_vector_text,
           -- FTS rank (normalized by number of queries)
           (${rankExpressions}) / ${allQueries.length} as fts_rank,
-          -- Trigram similarity score (best of title or description)
-          GREATEST(
-            COALESCE(similarity(normalized_title, '${this.escapeSql(query)}'), 0),
-            COALESCE(similarity(normalized_description, '${this.escapeSql(query)}'), 0)
-          ) as fuzzy_score,
+          -- Trigram similarity score terhadap title (lebih akurat dari description untuk filtering nama produk)
+          COALESCE(similarity(normalized_title, '${this.escapeSql(query)}'), 0) as fuzzy_score,
           -- Recency score: listing lebih baru mendapat bonus (decay over 30 days)
           GREATEST(
             0,
@@ -146,11 +177,9 @@ class SearchService {
           ) as recency_score
         FROM listings
         WHERE
-          (
-            ${tsvectorConditions}
-            OR normalized_title % '${this.escapeSql(query)}'
-            OR normalized_description % '${this.escapeSql(query)}'
-          )
+          -- STRICT AND: SEMUA token harus ada di title via ILIKE
+          -- Tidak ada OR backdoor — "sepeda gunung" tidak akan lolos untuk query "sepeda road bike"
+          (${tokenConditions})
           ${filters ? 'AND ' + filters : ''}
       ),
       total_count AS (
@@ -159,12 +188,12 @@ class SearchService {
       SELECT
         ranked.*,
         total_count.total,
-        -- Composite rank score
+        -- Composite rank score: FTS lebih dominan (0.50) untuk akurasi nama produk
         (
-          ranked.fts_rank * 0.35 +
-          ranked.fuzzy_score * 0.20 +
-          ranked.confidence_score * 0.20 +
-          ranked.recency_score * 0.15 +
+          ranked.fts_rank * 0.50 +
+          ranked.fuzzy_score * 0.15 +
+          ranked.confidence_score * 0.15 +
+          ranked.recency_score * 0.10 +
           (CASE WHEN ranked.is_price_fake THEN 0 ELSE 0.10 END)
         ) as rank_score
       FROM ranked, total_count
@@ -226,12 +255,22 @@ class SearchService {
   ): Promise<SearchResult> {
     const orderBy = this.buildOrderBy(sortBy);
 
+    // Minimum token matching — sama dengan smartRankedSearch
+    const simpleTokens = query.trim().toLowerCase().split(/\s+/).filter(t => t.length >= 2);
+    const simpleRequired = simpleTokens.length > 0 ? Math.max(1, Math.ceil(simpleTokens.length * 0.8)) : 0;
+    const simpleTokenExpr = simpleTokens.length > 0
+      ? simpleTokens.map(t => `(CASE WHEN normalized_title ILIKE '%${this.escapeSql(t)}%' THEN 1 ELSE 0 END)`).join(' + ')
+      : '1';
+    const simpleTokenCond = simpleTokens.length > 0
+      ? `(${simpleTokenExpr}) >= ${simpleRequired}`
+      : '1=1';
+
     const whereConditions = [
-      query
-        ? `(search_vector @@ plainto_tsquery('simple', '${this.escapeSql(query)}') OR normalized_title % '${this.escapeSql(query)}')`
-        : '1=1',
+      simpleTokenCond,  // STRICT: hanya ILIKE AND \u2014 tidak ada OR backdoor
       filters,
     ].filter(Boolean).join(' AND ');
+
+
 
     const [items, total] = await Promise.all([
       prisma.$queryRawUnsafe<SearchResultItem[]>(`

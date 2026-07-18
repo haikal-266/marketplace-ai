@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   Link, 
   Download, 
@@ -17,15 +17,10 @@ import {
   ToggleLeft,
   ToggleRight,
   HelpCircle,
-  AlertTriangle,
-  Play,
-  ChevronDown,
-  ChevronUp,
-  Check
+  AlertTriangle
 } from 'lucide-react';
-import { authApi, scraperApi, dictionaryApi, listingsApi } from '../services/api';
+import { authApi, dictionaryApi, listingsApi } from '../services/api';
 import type { AuthStatus, DictionaryTerm } from '../types';
-import styles from './SettingsPage.module.css';
 
 const CATEGORIES = [
   { value: 'pricing', label: 'Pricing', icon: DollarSign },
@@ -52,7 +47,6 @@ export default function SettingsPage() {
   const [termError, setTermError] = useState(false);
   const [meaningError, setMeaningError] = useState(false);
   const [filterCategory, setFilterCategory] = useState('');
-
 
   // Export state
   const [exporting, setExporting] = useState(false);
@@ -211,28 +205,32 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className={styles.page}>
+    <div className="flex flex-col gap-6 max-w-[900px] mx-auto pb-12 h-full overflow-y-auto pr-2 scrollbar-none">
       {/* Page Header */}
-      <header className={styles.header}>
-        <h1 className={styles.pageTitle}>Pengaturan Sistem</h1>
-        <p className={styles.pageSubtitle}>Kelola integrasi Facebook, kamus pendeteksi AI, dan database.</p>
+      <header className="flex flex-col gap-1">
+        <h1 className="text-xl font-bold text-text-primary tracking-tight">Pengaturan Sistem</h1>
+        <p className="text-[13px] text-text-secondary">Kelola integrasi Facebook, kamus pendeteksi AI, dan database.</p>
       </header>
 
       {/* Bento Layout sections */}
-      <div className={styles.bentoLayout}>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Bento Card 1: Facebook Connection */}
-        <section className={`${styles.bentoBox} ${styles.connectionBox}`}>
-          <div className={styles.boxHeader}>
-            <Link size={16} className={styles.boxIcon} />
-            <h2 className={styles.boxTitle}>Koneksi Facebook</h2>
+        <section className="bg-bg-card border border-border-subtle rounded-xl p-5 flex flex-col gap-4 transition-colors duration-120 hover:border-border-normal col-span-1">
+          <div className="flex items-center gap-2 pb-2">
+            <Link size={16} className="text-info opacity-80" />
+            <h2 className="text-[13px] font-bold uppercase tracking-wider text-text-primary m-0">Koneksi Facebook</h2>
           </div>
           
-          <div className={styles.authCard}>
+          <div className="flex flex-col gap-4">
             {authStatus ? (
-              <div className={styles.authStatus}>
-                <div className={styles.statusRow}>
-                  <div className={`${styles.statusDot} ${authStatus.isConnected ? styles.statusDotGreen : styles.statusDotRed}`} />
-                  <span className={styles.statusText}>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${
+                    authStatus.isConnected
+                      ? 'bg-green-500 shadow-[0_0_6px_#22c55e]'
+                      : 'bg-red-500 shadow-[0_0_6px_#ef4444]'
+                  }`} />
+                  <span className="text-[13px] font-semibold text-text-primary">
                     {authStatus.isConnected
                       ? authStatus.isSessionLikelyValid
                         ? 'Terkoneksi (Session Aktif)'
@@ -242,26 +240,26 @@ export default function SettingsPage() {
                   </span>
                 </div>
                 {authStatus.loginState !== 'idle' && (
-                  <div className={styles.loginStateMsg}>
+                  <div className="text-xs text-accent-tertiary p-2 bg-bg-primary rounded border border-border-subtle">
                     {loginStateLabel[authStatus.loginState]}
                   </div>
                 )}
               </div>
             ) : (
-              <div className={styles.skeletonLine} />
+              <div className="h-4 w-40 bg-bg-tertiary rounded animate-pulse" />
             )}
 
             {authError && (
-              <div className={styles.errorMsg}>
+              <div className="flex items-center gap-2 text-danger bg-[#a3988f]/10 border border-[#a3988f]/20 p-2 rounded text-xs">
                 <AlertTriangle size={14} />
                 <span>{authError}</span>
               </div>
             )}
 
-            <div className={styles.authActions}>
+            <div className="flex flex-col">
               {!authStatus?.isConnected ? (
                 <button
-                  className={styles.primaryBtn}
+                  className="h-[38px] rounded-lg text-[13px] font-semibold cursor-pointer flex items-center justify-center gap-2 transition-all duration-120 bg-accent-primary text-text-primary hover:bg-accent-secondary disabled:opacity-50"
                   onClick={handleConnect}
                   disabled={authLoading}
                   id="btn-connect-facebook"
@@ -270,7 +268,7 @@ export default function SettingsPage() {
                 </button>
               ) : (
                 <button
-                  className={styles.dangerBtn}
+                  className="h-[38px] rounded-lg text-[13px] font-semibold cursor-pointer flex items-center justify-center gap-2 transition-all duration-120 bg-bg-primary text-text-primary border border-border-normal hover:bg-bg-tertiary hover:border-border-strong"
                   onClick={handleDisconnect}
                   id="btn-disconnect-facebook"
                 >
@@ -279,26 +277,26 @@ export default function SettingsPage() {
               )}
             </div>
 
-            <div className={styles.infoNote}>
-              <HelpCircle size={14} className={styles.infoIcon} />
-              <p>Facebook cookies akan terenkripsi dan disimpan di backend Anda. Tidak pernah diteruskan ke client browser.</p>
+            <div className="flex gap-2 bg-border-color/3 border border-border-subtle rounded-lg p-4">
+              <HelpCircle size={14} className="text-text-secondary opacity-60 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-text-secondary m-0 leading-normal">Facebook cookies akan terenkripsi dan disimpan di backend Anda. Tidak pernah diteruskan ke client browser.</p>
             </div>
           </div>
         </section>
 
         {/* Bento Card 2: Export Database */}
-        <section className={`${styles.bentoBox} ${styles.exportBox}`}>
-          <div className={styles.boxHeader}>
-            <Download size={16} className={styles.boxIcon} />
-            <h2 className={styles.boxTitle}>Ekspor Data</h2>
+        <section className="bg-bg-card border border-border-subtle rounded-xl p-5 flex flex-col gap-4 transition-colors duration-120 hover:border-border-normal col-span-1">
+          <div className="flex items-center gap-2 pb-2">
+            <Download size={16} className="text-info opacity-80" />
+            <h2 className="text-[13px] font-bold uppercase tracking-wider text-text-primary m-0">Ekspor Data</h2>
           </div>
 
-          <div className={styles.exportContent}>
-            <p className={styles.exportDesc}>
+          <div className="flex flex-col gap-3 flex-1 justify-between">
+            <p className="text-[13px] text-text-secondary m-0 leading-relaxed">
               Unduh seluruh data hasil pencarian/scraping dari database PostgreSQL Anda langsung ke format tabel Excel (CSV).
             </p>
             <button
-              className={styles.primaryBtn}
+              className="h-[38px] rounded-lg text-[13px] font-semibold cursor-pointer flex items-center justify-center gap-2 transition-all duration-120 bg-accent-primary text-text-primary hover:bg-accent-secondary disabled:opacity-50"
               onClick={handleExportExcel}
               disabled={exporting}
               id="btn-export-excel"
@@ -310,17 +308,17 @@ export default function SettingsPage() {
         </section>
 
         {/* Bento Card 3: Kelola Data */}
-        <section className={`${styles.bentoBox} ${styles.dataBox}`}>
-          <div className={styles.boxHeader}>
-            <Database size={16} className={styles.boxIcon} />
-            <h2 className={styles.boxTitle}>Manajemen Database</h2>
+        <section className="bg-bg-card border border-border-subtle rounded-xl p-5 flex flex-col gap-4 transition-colors duration-120 hover:border-border-normal col-span-1 md:col-span-2">
+          <div className="flex items-center gap-2 pb-2">
+            <Database size={16} className="text-info opacity-80" />
+            <h2 className="text-[13px] font-bold uppercase tracking-wider text-text-primary m-0">Manajemen Database</h2>
           </div>
-          <div className={styles.dataContent}>
-            <p className={styles.dataDesc}>
+          <div className="flex flex-col gap-3">
+            <p className="text-[13px] text-text-secondary m-0 leading-relaxed">
               Kosongkan semua data listings hasil scraping dari database PostgreSQL Anda secara permanen.
             </p>
             <button
-              className={styles.dangerBtnOutline}
+              className="h-[38px] rounded-lg text-[13px] font-semibold cursor-pointer flex items-center justify-center gap-2 transition-all duration-120 bg-transparent text-text-primary border border-border-subtle w-fit px-4 hover:border-border-strong hover:bg-bg-tertiary"
               onClick={handleDeleteAllListings}
               id="btn-clear-listings"
             >
@@ -331,22 +329,24 @@ export default function SettingsPage() {
         </section>
 
         {/* Bento Card 4: Dictionary */}
-        <section className={`${styles.bentoBox} ${styles.dictionaryBox}`}>
-          <div className={styles.boxHeader}>
-            <BookOpen size={16} className={styles.boxIcon} />
-            <h2 className={styles.boxTitle}>Kamus Istilah Marketplace</h2>
+        <section className="bg-bg-card border border-border-subtle rounded-xl p-5 flex flex-col gap-4 transition-colors duration-120 hover:border-border-normal col-span-1 md:col-span-2">
+          <div className="flex items-center gap-2 pb-2">
+            <BookOpen size={16} className="text-info opacity-80" />
+            <h2 className="text-[13px] font-bold uppercase tracking-wider text-text-primary m-0">Kamus Istilah Marketplace</h2>
           </div>
 
-          <p className={styles.dictionaryDesc}>
+          <p className="text-[13px] text-text-secondary m-0">
             Kata kunci yang ditambahkan di sini akan digunakan oleh pipeline AI untuk normalisasi & klasifikasi.
           </p>
 
           {/* Add Term Form */}
-          <form className={styles.addTermForm} onSubmit={handleAddTerm} noValidate>
-            <div className={styles.formFieldsRow}>
-              <div className={`${styles.inputWrapper} ${styles.termInputWrapper}`}>
+          <form className="flex flex-col gap-3 bg-bg-secondary border border-border-subtle rounded-xl p-4" onSubmit={handleAddTerm} noValidate>
+            <div className="flex flex-col md:flex-row gap-2 w-full">
+              <div className="relative flex flex-col w-full flex-1 md:flex-[0_0_160px]">
                 <input
-                  className={`${styles.input} ${termError ? styles.inputError : ''}`}
+                  className={`w-full bg-bg-primary border rounded-md text-text-primary font-sans text-xs px-3 outline-none h-[38px] transition-colors focus:border-accent-primary ${
+                    termError ? 'border-red-500 shadow-[0_0_0_3px_rgba(239,68,68,0.15)]' : 'border-border-subtle'
+                  }`}
                   type="text"
                   placeholder="BU, TT, BT..."
                   value={newTerm.term}
@@ -356,16 +356,18 @@ export default function SettingsPage() {
                   }}
                 />
                 {termError && (
-                  <div className={styles.errorTooltip}>
+                  <div className="absolute top-[42px] left-1 text-[11px] font-medium text-white bg-red-500 rounded px-2 py-1 z-50 shadow-[0_4px_12px_rgba(239,68,68,0.3)] flex items-center gap-1 pointer-events-none animate-fade-in before:content-[''] before:absolute before:bottom-full before:left-3 before:border-4 before:border-transparent before:border-b-red-500">
                     <AlertTriangle size={12} />
                     <span>Wajib diisi</span>
                   </div>
                 )}
               </div>
               
-              <div className={`${styles.inputWrapper} ${styles.meaningInputWrapper}`}>
+              <div className="relative flex flex-col w-full flex-1">
                 <input
-                  className={`${styles.input} ${meaningError ? styles.inputError : ''}`}
+                  className={`w-full bg-bg-primary border rounded-md text-text-primary font-sans text-xs px-3 outline-none h-[38px] transition-colors focus:border-accent-primary ${
+                    meaningError ? 'border-red-500 shadow-[0_0_0_3px_rgba(239,68,68,0.15)]' : 'border-border-subtle'
+                  }`}
                   type="text"
                   placeholder="Arti (misal: Butuh Uang)"
                   value={newTerm.meaning}
@@ -375,7 +377,7 @@ export default function SettingsPage() {
                   }}
                 />
                 {meaningError && (
-                  <div className={styles.errorTooltip}>
+                  <div className="absolute top-[42px] left-1 text-[11px] font-medium text-white bg-red-500 rounded px-2 py-1 z-50 shadow-[0_4px_12px_rgba(239,68,68,0.3)] flex items-center gap-1 pointer-events-none animate-fade-in before:content-[''] before:absolute before:bottom-full before:left-3 before:border-4 before:border-transparent before:border-b-red-500">
                     <AlertTriangle size={12} />
                     <span>Wajib diisi</span>
                   </div>
@@ -384,7 +386,7 @@ export default function SettingsPage() {
 
               <button
                 type="submit"
-                className={styles.addButtonSquare}
+                className="h-[38px] w-full md:w-[42px] shrink-0 bg-accent-primary text-text-primary rounded-lg flex items-center justify-center cursor-pointer transition-colors duration-120 hover:bg-accent-secondary disabled:opacity-50"
                 disabled={addingTerm}
                 id="btn-add-term"
               >
@@ -392,9 +394,9 @@ export default function SettingsPage() {
               </button>
             </div>
 
-            <div className={styles.categorySliderSection}>
-              <div className={styles.categorySliderLabel}>Pilih Kategori Istilah:</div>
-              <div className={styles.categorySlider}>
+            <div className="flex flex-col gap-1">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-text-secondary pl-0.5">Pilih Kategori Istilah:</div>
+              <div className="flex gap-1.5 overflow-x-auto scrollbar-none w-full py-0.5">
                 {CATEGORIES.map((c) => {
                   const IconComponent = c.icon;
                   const isSelected = newTerm.category === c.value;
@@ -402,10 +404,12 @@ export default function SettingsPage() {
                     <button
                       key={c.value}
                       type="button"
-                      className={`${styles.categorySliderTab} ${isSelected ? styles.categorySliderTabActive : ''}`}
+                      className={`inline-flex items-center gap-1.5 bg-bg-primary border text-text-secondary text-[11px] font-medium px-3 py-1.5 rounded cursor-pointer transition-all duration-120 whitespace-nowrap shrink-0 hover:text-text-primary hover:bg-bg-tertiary hover:border-border-normal ${
+                        isSelected ? 'bg-accent-primary/12 text-text-primary border-accent-primary font-semibold' : 'border-border-subtle'
+                      }`}
                       onClick={() => setNewTerm((p) => ({ ...p, category: c.value }))}
                     >
-                      <IconComponent size={12} className={styles.categoryTabIcon} />
+                      <IconComponent size={12} className={`transition-colors ${isSelected ? 'text-text-primary' : 'text-info opacity-80'}`} />
                       <span>{c.label}</span>
                     </button>
                   );
@@ -415,14 +419,16 @@ export default function SettingsPage() {
           </form>
 
           {/* Dictionary Filtering */}
-          <div className={styles.dictionaryFilterBar}>
-            <div className={styles.filterTitleRow}>
-              <Filter size={12} className={styles.filterIcon} />
-              <span className={styles.termsCount}>{filteredTerms.length} kata terdaftar</span>
+          <div className="flex items-center justify-between border-b border-border-subtle pb-2 flex-wrap gap-3">
+            <div className="flex items-center gap-1.5 text-text-secondary">
+              <Filter size={12} className="opacity-70" />
+              <span className="text-[11px] font-semibold">{filteredTerms.length} kata terdaftar</span>
             </div>
-            <div className={styles.categoryFilters}>
+            <div className="flex gap-1 flex-wrap">
               <button
-                className={`${styles.filterTab} ${!filterCategory ? styles.filterTabActive : ''}`}
+                className={`bg-transparent border border-transparent text-text-secondary text-[11px] font-medium px-2.5 py-1 rounded cursor-pointer transition-all duration-120 hover:text-text-primary hover:bg-bg-tertiary ${
+                  !filterCategory ? 'bg-accent-primary/12 text-text-primary border-accent-primary' : ''
+                }`}
                 onClick={() => setFilterCategory('')}
               >
                 Semua
@@ -430,7 +436,9 @@ export default function SettingsPage() {
               {CATEGORIES.map((c) => (
                 <button
                   key={c.value}
-                  className={`${styles.filterTab} ${filterCategory === c.value ? styles.filterTabActive : ''}`}
+                  className={`bg-transparent border border-transparent text-text-secondary text-[11px] font-medium px-2.5 py-1 rounded cursor-pointer transition-all duration-120 hover:text-text-primary hover:bg-bg-tertiary ${
+                    filterCategory === c.value ? 'bg-accent-primary/12 text-text-primary border-accent-primary' : ''
+                  }`}
                   onClick={() => setFilterCategory(c.value)}
                 >
                   {c.label}
@@ -441,42 +449,44 @@ export default function SettingsPage() {
 
           {/* Terms List Grid */}
           {termsLoading ? (
-            <div className={styles.termsGrid}>
-              <div className={styles.skeletonItem} />
-              <div className={styles.skeletonItem} />
-              <div className={styles.skeletonItem} />
+            <div className="flex flex-col gap-2">
+              <div className="h-12 bg-bg-tertiary rounded-lg animate-pulse" />
+              <div className="h-12 bg-bg-tertiary rounded-lg animate-pulse" />
+              <div className="h-12 bg-bg-tertiary rounded-lg animate-pulse" />
             </div>
           ) : (
-            <div className={styles.termsGrid}>
+            <div className="flex flex-col gap-2">
               {filteredTerms.map((term) => {
                 const catInfo = CATEGORIES.find((c) => c.value === term.category);
                 const CatIcon = catInfo?.icon || Bookmark;
                 return (
-                  <div key={term.id} className={`${styles.termItem} ${!term.isActive ? styles.termInactive : ''}`}>
-                    <div className={styles.termInfo}>
-                      <code className={styles.termWord}>{term.term}</code>
-                      <span className={styles.termMeaning}>{term.meaning}</span>
+                  <div key={term.id} className={`flex items-center justify-between bg-bg-secondary border border-border-subtle rounded-lg px-4 py-3 transition-colors duration-120 hover:border-border-normal hover:bg-bg-card-hover ${
+                    !term.isActive ? 'opacity-45' : ''
+                  }`}>
+                    <div className="flex flex-col md:flex-row items-start md:items-center gap-1.5 md:gap-4 min-w-0 flex-1">
+                      <code className="font-mono text-xs font-bold text-accent-tertiary bg-accent-primary/8 border border-border-subtle px-1.5 py-0.5 rounded whitespace-nowrap shrink-0">{term.term}</code>
+                      <span className="text-[13px] text-text-primary whitespace-nowrap overflow-hidden text-ellipsis">{term.meaning}</span>
                     </div>
                     
-                    <div className={styles.termActions}>
-                      <span className={styles.categoryLabel} title={catInfo?.label}>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="flex items-center justify-center w-6 h-6 rounded-full bg-bg-tertiary text-text-secondary" title={catInfo?.label}>
                         <CatIcon size={12} />
                       </span>
                       
                       <button
-                        className={styles.iconActionBtn}
+                        className="bg-transparent border-none cursor-pointer flex items-center justify-center p-1 rounded transition-colors duration-120 text-text-secondary"
                         onClick={() => handleToggleTerm(term)}
                         title={term.isActive ? 'Nonaktifkan' : 'Aktifkan'}
                       >
                         {term.isActive ? (
-                          <ToggleRight size={20} className={styles.activeToggle} />
+                          <ToggleRight size={20} className="text-accent-primary" />
                         ) : (
-                          <ToggleLeft size={20} className={styles.inactiveToggle} />
+                          <ToggleLeft size={20} className="text-text-muted" />
                         )}
                       </button>
 
                       <button
-                        className={styles.iconActionBtnDanger}
+                        className="bg-transparent border-none cursor-pointer flex items-center justify-center p-1 rounded transition-colors duration-120 text-danger opacity-60 hover:opacity-100 hover:bg-text-secondary/10"
                         onClick={() => handleDeleteTerm(term)}
                         title="Hapus Istilah"
                       >

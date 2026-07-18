@@ -2,7 +2,6 @@ import { BrowserRouter, useLocation, NavLink, Navigate } from 'react-router-dom'
 import { Search, Settings } from 'lucide-react';
 import SearchPage from './pages/SearchPage';
 import SettingsPage from './pages/SettingsPage';
-import styles from './App.module.css';
 
 const NAV_ITEMS = [
   { to: '/search', label: 'Search', icon: Search },
@@ -13,22 +12,22 @@ function AppInner() {
   const { pathname } = useLocation();
 
   return (
-    <div className={styles.layout}>
+    <div className="h-screen w-screen overflow-hidden bg-bg-primary text-text-primary flex md:flex-row flex-col">
       {/* ── Sidebar (Desktop Only) ── */}
-      <aside className={styles.sidebar}>
+      <aside className="w-[240px] bg-bg-secondary border-r border-border-subtle flex flex-col fixed top-0 left-0 h-screen z-50 p-6 hidden md:flex">
         {/* Logo */}
-        <div className={styles.logo}>
-          <div className={styles.logoIconContainer}>
-            <span className={styles.logoBullet}></span>
+        <div className="flex items-center gap-3 pb-6 border-b border-border-subtle mb-6">
+          <div className="w-6 h-6 rounded bg-accent-primary flex items-center justify-center shrink-0">
+            <span className="w-2 h-2 rounded-full bg-text-primary"></span>
           </div>
-          <div className={styles.logoText}>
-            <div className={styles.logoTitle}>Marketplace AI</div>
-            <div className={styles.logoSub}>Smart Search</div>
+          <div className="flex flex-col">
+            <div className="text-sm font-bold text-text-primary tracking-tight">Marketplace AI</div>
+            <div className="text-[10px] text-text-secondary font-semibold">Smart Search</div>
           </div>
         </div>
 
         {/* Nav */}
-        <nav className={styles.nav}>
+        <nav className="flex flex-col gap-2 flex-1">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             return (
@@ -36,24 +35,30 @@ function AppInner() {
                 key={item.to}
                 to={item.to}
                 className={({ isActive }) =>
-                  `${styles.navItem} ${isActive ? styles.navItemActive : ''}`
+                  `flex items-center gap-3 px-4 py-3 rounded-lg text-text-secondary text-[13px] font-medium transition-all hover:bg-bg-tertiary hover:text-text-primary hover:border-border-subtle border border-transparent ${
+                    isActive ? "bg-accent-primary/10 text-text-primary border-accent-primary" : ""
+                  }`
                 }
               >
-                <Icon className={styles.navIcon} size={18} />
-                <span className={styles.navLabel}>{item.label}</span>
+                {({ isActive }) => (
+                  <>
+                    <Icon className={`transition-colors ${isActive ? 'text-text-primary' : 'text-info'}`} size={18} />
+                    <span>{item.label}</span>
+                  </>
+                )}
               </NavLink>
             );
           })}
         </nav>
 
         {/* Footer */}
-        <div className={styles.sidebarFooter}>
-          <span className={styles.versionTag}>v1.0.0</span>
+        <div className="flex pt-4 border-t border-border-subtle">
+          <span className="text-[10px] font-mono text-text-muted bg-bg-tertiary border border-border-subtle rounded px-1.5 py-0.5">v1.0.0</span>
         </div>
       </aside>
 
       {/* ── Bottom Navigation (Mobile Only) ── */}
-      <nav className={styles.bottomNav}>
+      <nav className="flex md:hidden fixed bottom-0 left-0 right-0 h-16 bg-bg-glass backdrop-blur-md border-t border-border-subtle z-50 flex-row justify-around items-center px-4">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           return (
@@ -61,18 +66,24 @@ function AppInner() {
               key={item.to}
               to={item.to}
               className={({ isActive }) =>
-                `${styles.bottomNavItem} ${isActive ? styles.bottomNavItemActive : ''}`
+                `flex flex-col items-center gap-1 text-text-secondary text-[10px] font-medium transition-colors py-2 px-4 ${
+                  isActive ? "text-text-primary" : ""
+                }`
               }
             >
-              <Icon size={20} className={styles.bottomNavIcon} />
-              <span className={styles.bottomNavLabel}>{item.label}</span>
+              {({ isActive }) => (
+                <>
+                  <Icon size={20} className={`transition-colors ${isActive ? 'text-accent-primary' : 'text-info'}`} />
+                  <span>{item.label}</span>
+                </>
+              )}
             </NavLink>
           );
         })}
       </nav>
 
       {/* ── Main Content ── */}
-      <main className={styles.main}>
+      <main className="md:ml-[240px] ml-0 flex-1 h-screen max-h-screen p-6 flex flex-col overflow-hidden md:h-screen md:max-h-screen md:overflow-hidden overflow-y-auto h-auto max-h-none pb-24 md:pb-6">
         {pathname === '/' && <Navigate to="/search" replace />}
 
         <div style={{ display: pathname.startsWith('/search') ? 'contents' : 'none' }}>
