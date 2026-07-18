@@ -95,6 +95,33 @@ export const listingsApi = {
 
   deleteAll: () =>
     request<{ message: string }>('/listings', { method: 'DELETE' }),
+
+  analyzeReport: async (
+    query: string,
+    items: Listing[],
+    aiConfig?: { provider?: string; apiKey?: string; baseUrl?: string; modelName?: string }
+  ): Promise<{
+    isAi: boolean;
+    data: {
+      macroSummary: string;
+      briefSpecs?: string[];
+      recommendations: { id: string; recommendation: string; isRedFlag: boolean }[];
+    } | null;
+  }> => {
+    const res = await fetch(`${BASE}/listings/analyze-report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, items, aiConfig }),
+    });
+    const json = await res.json();
+    if (!json.success || !res.ok) {
+      throw new Error(json.error?.message ?? `HTTP ${res.status}`);
+    }
+    return {
+      isAi: !!json.isAi,
+      data: json.data,
+    };
+  },
 };
 
 // ─── Dictionary ───────────────────────────────────────────────────────────────

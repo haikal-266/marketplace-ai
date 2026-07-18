@@ -74,6 +74,7 @@ export interface ScrapeOptions {
   details?: boolean;
   minPrice?: number;
   maxPrice?: number;
+  allowedLocations?: string[];
 }
 
 export interface AuthStatus {

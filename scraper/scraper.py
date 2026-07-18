@@ -213,19 +213,39 @@ async def extract_detail_from_dom(page: Page) -> dict:
     lines = [l.strip() for l in full.splitlines() if l.strip()]
 
     # ── Description ────────────────────────────────────────────────────────
-    # Strategi 1: Cari section description via selector
-    for desc_sel in [
+    # Strategi 1: Cari section description via selector (Facebook sering ganti class)
+    DESC_SELECTORS = [
         '[data-testid="marketplace_pdp_description"]',
         '[data-testid="marketplace_pdp_description"] span',
         '[data-testid="marketplace-pdp-description"]',
+        '[data-testid="pdp_description"]',
+        # Generic class patterns
+        '[class*="x1iorvi4"][class*="x1pi30zi"]',   # common FB description wrapper
+        '[class*="description"] span',
         '[class*="description"]',
-    ]:
+    ]
+    for desc_sel in DESC_SELECTORS:
         try:
             el = await page.query_selector(desc_sel)
             if el:
                 v = (await el.text_content() or "").strip()
                 if v and len(v) > 20:
                     d["description"] = v; break
+        except: pass
+
+    # Strategi 1b: JS evaluate — cari elemen dengan data-testid mengandung "description"
+    if not d.get("description"):
+        try:
+            v = await page.evaluate("""() => {
+                const els = document.querySelectorAll('[data-testid*="description"]');
+                for (const el of els) {
+                    const t = (el.innerText || el.textContent || '').trim();
+                    if (t.length > 20) return t;
+                }
+                return null;
+            }""")
+            if v and len(v) > 20:
+                d["description"] = v
         except: pass
 
     # Strategi 2: Gunakan og:description jika lebih panjang dari title
@@ -400,10 +420,14 @@ async def scrape_detail(page: Page, url: str) -> dict:
                 return
             # Cari deskripsi di dalam response body
             desc_patterns = [
+                r'"redacted_description"\s*:\s*\{"text"\s*:\s*"([^"]{10,})"',
                 r'"redacted_description"\s*:\s*\{[^}]*"text"\s*:\s*"([^"]{10,})"',
+                r'"description"\s*:\s*\{"text"\s*:\s*"([^"]{10,})"',
                 r'"description"\s*:\s*\{[^}]*"text"\s*:\s*"([^"]{10,})"',
-                r'"body"\s*:\s*\{[^}]*"text"\s*:\s*"([^"]{10,})"',
+                r'"body"\s*:\s*\{"text"\s*:\s*"([^"]{10,})"',
                 r'"marketplace_listing_renderable_target"\s*:\s*\{[^}]*"redacted_description"\s*:\s*\{[^}]*"text"\s*:\s*"([^"]{10,})"',
+                # Broader pattern: any JSON "text":"..." with at least 30 chars near "description"
+                r'"(?:listing_description|item_description|product_description)"\s*:\s*"([^"]{10,})"',
             ]
             for pat in desc_patterns:
                 m = re.search(pat, body)
@@ -416,6 +440,19 @@ async def scrape_detail(page: Page, url: str) -> dict:
                         pass
                     captured_desc = raw.strip()
                     break
+
+            # Last resort: cari string "text" yang panjang (> 60 chars) di JSON
+            if not captured_desc:
+                broad = re.findall(r'"text"\s*:\s*"([^"\\]{60,}(?:\\.[^"\\]*)*)"', body)
+                for candidate in broad:
+                    try:
+                        candidate = candidate.encode().decode('unicode_escape')
+                    except:
+                        pass
+                    # Heuristik: deskripsi produk biasanya bukan URL dan punya spasi
+                    if ' ' in candidate and 'http' not in candidate[:30]:
+                        captured_desc = candidate.strip()
+                        break
         except:
             pass
 
@@ -431,6 +468,22 @@ async def scrape_detail(page: Page, url: str) -> dict:
 
         # Load halaman
         await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+
+        # Deteksi redirect ke login / checkpoint (sesi kedaluwarsa)
+        try:
+            cur_url = page.url
+            import sys as _sys
+            _sys.stderr.write(f"[DETAIL] {url[:60]} -> {cur_url[:60]}\n")
+            _sys.stderr.flush()
+            LOGIN_INDICATORS = (
+                "/login", "/checkpoint", "/recover", "/two_step_verification",
+                "accounts/login", "auth/login"
+            )
+            if any(ind in cur_url for ind in LOGIN_INDICATORS):
+                # Sesi expired — kembalikan dict kosong tanpa delay
+                return {}
+        except:
+            pass
 
         # Tunggu: beri waktu GraphQL response masuk + DOM hydrate
         try:
@@ -524,9 +577,31 @@ async def detail_worker(queue: asyncio.Queue, ctx, cfg):
             queue.task_done()
 
 
+import sys
+import threading
+
+stop_event = None
+
+def watch_stdin(loop):
+    global stop_event
+    try:
+        for line in sys.stdin:
+            if line.strip() == "stop":
+                if stop_event:
+                    loop.call_soon_threadsafe(stop_event.set)
+                break
+    except:
+        pass
+
+
 async def run(cfg=None):
+    global stop_event
     if cfg is None: cfg = ScraperConfig()
     cfg.max_detail_pages = cfg.max_listings
+    
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    threading.Thread(target=watch_stdin, args=(loop,), daemon=True).start()
     
     seen_urls = set()
     detail_queue = asyncio.Queue()
@@ -577,7 +652,7 @@ async def run(cfg=None):
             prev_len = 0
             stall = 0
 
-            while True:
+            while not stop_event.is_set():
                 try:
                     await human_scroll(page)
                     await asyncio.sleep(random.uniform(0.5, 1.2))
@@ -610,6 +685,14 @@ async def run(cfg=None):
                         if l.title: l.title = l.title.replace("+", " ").replace("  ", " ").strip()
                         
                         if l.title or l.price:
+                            # Filter lokasi jika dikonfigurasi
+                            if cfg.allowed_locations:
+                                loc_lower = (l.location or "").lower()
+                                if not any(x in loc_lower for x in cfg.allowed_locations):
+                                    # Tandai URL ini sudah dilihat agar tidak dicek ulang, tapi abaikan listing-nya
+                                    seen_urls.add(url)
+                                    continue
+                            
                             seen_urls.add(url)
                             new_listings.append(l)
 
@@ -674,6 +757,7 @@ if __name__ == "__main__":
     cookies_path = None
     min_price = 0
     max_price = 0
+    allowed_locs = []
     for a in sys.argv:
         if a.startswith("--cookies="): cookies_path = a.split("=", 1)[1]
         if a.startswith("--minPrice="): 
@@ -681,6 +765,11 @@ if __name__ == "__main__":
             except: pass
         if a.startswith("--maxPrice="): 
             try: max_price = int(a.split("=", 1)[1])
+            except: pass
+        if a.startswith("--allowedLocations="):
+            try:
+                val = a.split("=", 1)[1]
+                allowed_locs = [x.strip().lower() for x in val.split(",") if x.strip()]
             except: pass
     cfg = ScraperConfig(
         location=sys.argv[1] if len(sys.argv) > 1 else "",
@@ -692,5 +781,6 @@ if __name__ == "__main__":
         scrape_details="--details" in sys.argv,
         api_mode="--api" in sys.argv,
         cookies_file=Path(cookies_path) if cookies_path else Path("cookies.json"),
+        allowed_locations=allowed_locs,
     )
     asyncio.run(run(cfg))

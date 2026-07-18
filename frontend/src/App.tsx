@@ -1,5 +1,5 @@
 import { BrowserRouter, useLocation, NavLink, Navigate } from 'react-router-dom';
-import { Search, Settings } from 'lucide-react';
+import { Search, Settings, FileText } from 'lucide-react';
 import SearchPage from './pages/SearchPage';
 import SettingsPage from './pages/SettingsPage';
 
@@ -49,6 +49,13 @@ function AppInner() {
               </NavLink>
             );
           })}
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('generate-report-click'))}
+            className="flex items-center gap-3 px-4 py-3 rounded-lg text-text-secondary text-[13px] font-medium transition-all hover:bg-bg-tertiary hover:text-text-primary hover:border-border-subtle border border-transparent cursor-pointer text-left w-full"
+          >
+            <FileText className="text-info" size={18} />
+            <span>Laporan</span>
+          </button>
         </nav>
 
         {/* Footer */}
@@ -80,6 +87,13 @@ function AppInner() {
             </NavLink>
           );
         })}
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent('generate-report-click'))}
+          className="flex flex-col items-center gap-1 text-text-secondary text-[10px] font-medium transition-colors py-2 px-4 cursor-pointer bg-transparent border-none"
+        >
+          <FileText size={20} className="text-info" />
+          <span>Laporan</span>
+        </button>
       </nav>
 
       {/* ── Main Content ── */}

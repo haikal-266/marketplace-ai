@@ -4,6 +4,7 @@ import type { Listing, DictionaryMatch } from '../../types';
 interface Props {
   listing: Listing;
   searchQuery?: string;
+  isMonitoring?: boolean;
   onClick?: () => void;
 }
 
@@ -90,7 +91,7 @@ export function hasMinus(title: string, description: string): boolean {
   return cleanText.includes('minus');
 }
 
-export default function ListingCard({ listing, searchQuery = '', onClick }: Props) {
+export default function ListingCard({ listing, searchQuery = '', isMonitoring = false, onClick }: Props) {
   const {
     title, description, actualPriceAmount, listedPrice, isPriceFake,
     location, postedAt, confidenceScore, isBarter, isTradeIn, isNett,
@@ -166,9 +167,13 @@ export default function ListingCard({ listing, searchQuery = '', onClick }: Prop
           <p className="text-xs text-text-secondary leading-relaxed line-clamp-3 my-1 min-h-[54px]">
             {highlightText(description, searchQuery)}
           </p>
-        ) : (
+        ) : isMonitoring ? (
           <p className="text-[11px] text-text-muted leading-normal my-1 min-h-[54px] bg-accent-tertiary/4 border border-dashed border-accent-tertiary/25 rounded p-2 flex items-center justify-center text-center">
             ⏳ <em>Deskripsi sedang dimuat. Produk mungkin otomatis terhapus jika deskripsi tidak sesuai filter Anda...</em>
+          </p>
+        ) : (
+          <p className="text-[11px] text-text-muted leading-normal my-1 min-h-[54px] bg-bg-secondary border border-border-subtle rounded p-2 flex items-center justify-center text-center italic">
+            Deskripsi tidak tersedia
           </p>
         )}
 
@@ -204,7 +209,7 @@ export default function ListingCard({ listing, searchQuery = '', onClick }: Prop
                     </span>
                     {listedPrice && isPriceFake && (
                       <span className="inline-flex items-center gap-0.5 bg-danger/12 border border-danger/25 text-text-secondary text-[9px] font-semibold px-1 py-0.5 rounded uppercase tracking-wide" title={`Harga tertera: ${overrideCurrencyToRupiah(listedPrice)}`}>
-                        <ShieldAlert size={10} /> Fake Price
+                        <ShieldAlert size={10} /> Bukan Harga Real
                       </span>
                     )}
                   </div>

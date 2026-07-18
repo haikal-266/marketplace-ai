@@ -16,6 +16,7 @@ const ScrapeBodySchema = z.object({
   details: z.boolean().optional().default(true),
   minPrice: z.number().int().min(0).optional(),
   maxPrice: z.number().int().min(0).optional(),
+  allowedLocations: z.array(z.string()).optional(),
 });
 
 /**

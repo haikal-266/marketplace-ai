@@ -20,6 +20,7 @@ class ScraperConfig:
     max_price: int = 0
     sort_by: str = ""
     radius_km: int = 0
+    allowed_locations: list[str] = field(default_factory=list)
 
     def __post_init__(self):
         self.output_dir.mkdir(parents=True, exist_ok=True)

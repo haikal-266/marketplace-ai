@@ -1,41 +1,43 @@
-# 🛒 Facebook Marketplace AI
+# Facebook Marketplace AI
 
 Scrape Facebook Marketplace listings dan cari pakai AI search — stealth browser, auto city detection, full-stack monorepo.
 
 ---
 
-## ✨ Features
+## Features
 
-- **Stealth Scraper** — Playwright + anti-detection fingerprint, auto city dari cookies Facebook
-- **AI Search** — pencarian cerdas dengan NLP pipeline (normalisasi, sinonim, price detection)
+- **Stealth Scraper** — Playwright + anti-detection fingerprint, auto city dari cookies Facebook, penanganan otomatis akun terblokir dan popup notifikasi
+- **AI Search & Analisis** — Pencarian cerdas dengan NLP pipeline (normalisasi, FTS, fuzzy matching, sinonim, deteksi harga). Menggunakan model Gemini 1.5 Flash untuk analisis spesifikasi produk (RAM, Storage, kelengkapan, minus, dan garansi)
+- **Ekspor Laporan PDF Profesional** — Ekspor hasil analisis pasar berformat monokrom minimalis profesional, bebas defect pemotongan halaman (page-break), serta dilengkapi tautan teks aktif dan kode QR
+- **Desain Dashboard Modern** — Tata letak responsif dengan panel bento grid, visualisasi statistik, serta slider filter aktif mendatar (horizontal) yang rapi
 - **Full-stack Monorepo** — Node.js/Express backend + React frontend + Python scraper
-- **Zero hardcode** — parsing via pattern matching, bukan kata-kata bahasa spesifik
+- **Zero hardcode** — Parsing via pattern matching, bukan kata-kata bahasa spesifik
 - **Parallel scraping** — 3 tab paralel untuk detail halaman (seller, kondisi, deskripsi)
 
 ---
 
-## 📦 Tech Stack
+## Tech Stack
 
 | Layer | Tech |
 |-------|------|
-| Frontend | React 19, Vite, TypeScript |
+| Frontend | React 19, Vite, TypeScript, TailwindCSS v4 |
 | Backend | Node.js, Express, TypeScript, Prisma |
 | Database | PostgreSQL |
 | Scraper | Python, Playwright, playwright-stealth, browserforge |
 
 ---
 
-## 🔧 Prerequisites
+## Prerequisites
 
 Pastikan sudah terinstall:
 
-- [Node.js](https://nodejs.org/) v18+
-- [Python](https://python.org/) 3.10+
-- [PostgreSQL](https://www.postgresql.org/) 14+ (Jika belum terinstall di Windows, Anda bisa menggunakan perintah `winget install PostgreSQL.PostgreSQL.16 --silent --override "--mode unattended --superpassword <password> --serverport 5432"` di terminal Administrator).
+- Node.js v18+
+- Python 3.10+
+- PostgreSQL 14+ (Jika belum terinstall di Windows, Anda bisa menggunakan perintah `winget install PostgreSQL.PostgreSQL.16 --silent --override "--mode unattended --superpassword <password> --serverport 5432"` di terminal Administrator).
 
 ---
 
-## 🚀 Setup & Installation
+## Setup & Installation
 
 ### 1. Clone repo
 
@@ -78,6 +80,9 @@ PYTHON_PATH="./scraper/venv/Scripts/python.exe"
 
 SCRAPER_SCRIPT_PATH="./scraper/scraper.py"
 FRONTEND_URL="http://localhost:5173"
+
+# Gemini API Key untuk analisis laporan oleh AI
+GEMINI_API_KEY="isi_dengan_api_key_gemini_kamu"
 ```
 
 ### 4. Setup Database
@@ -86,7 +91,7 @@ FRONTEND_URL="http://localhost:5173"
 # Jalankan migration (Masukkan nama migrasi seperti 'sync' jika diminta)
 npm run db:migrate
 
-# (Opsional) Isi data awal kamus istilah & sinonim
+# Isi data awal kamus istilah & sinonim
 npm run db:seed
 ```
 
@@ -112,7 +117,7 @@ cd ..
 
 ---
 
-## 🍪 Setup Cookies Facebook
+## Setup Cookies Facebook
 
 Scraper butuh cookies Facebook yang valid untuk bisa akses Marketplace.
 
@@ -127,7 +132,7 @@ Scraper butuh cookies Facebook yang valid untuk bisa akses Marketplace.
 ### Cara 2: Chrome DevTools Manual
 
 1. Login Facebook → tekan `F12` → tab **Application** → **Cookies** → `facebook.com`
-2. Buat file `scraper/cookies.json`:
+2. Buka dan buat file `scraper/cookies.json`:
 
 ```json
 [
@@ -139,11 +144,11 @@ Scraper butuh cookies Facebook yang valid untuk bisa akses Marketplace.
 ]
 ```
 
-> ⚠️ **Jangan commit cookies.json ke GitHub!** File ini sudah ada di `.gitignore`.
+> **Jangan commit cookies.json ke GitHub!** File ini sudah otomatis diabaikan di `.gitignore`.
 
 ---
 
-## ▶️ Menjalankan Aplikasi
+## Menjalankan Aplikasi
 
 ### Development (semua sekaligus)
 
@@ -151,7 +156,7 @@ Scraper butuh cookies Facebook yang valid untuk bisa akses Marketplace.
 npm run dev
 ```
 
-Ini akan menjalankan backend (port `3001`) dan frontend (port `5173`) secara bersamaan.
+Ini akan menjalankan backend (port `3001`) and frontend (port `5173`) secara bersamaan.
 
 ### Atau jalankan terpisah
 
@@ -167,7 +172,7 @@ Buka browser di **http://localhost:5173**
 
 ---
 
-## 🕷️ Menjalankan Scraper Langsung (CLI)
+## Menjalankan Scraper Langsung (CLI)
 
 ```bash
 cd scraper
@@ -206,7 +211,7 @@ python scraper.py <city> <query> <count> [flags]
 
 ---
 
-## 📁 Struktur Project
+## Struktur Project
 
 ```
 marketplace-ai/
@@ -232,7 +237,7 @@ marketplace-ai/
 
 ---
 
-## 🛠️ Scripts Tersedia
+## Scripts Tersedia
 
 | Command | Keterangan |
 |---------|------------|
@@ -246,9 +251,9 @@ marketplace-ai/
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
-**`playwright install` gagal**
+**playwright install gagal**
 ```bash
 # Install system dependencies dulu (Linux)
 sudo apt-get install -y libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libgbm1
@@ -262,9 +267,10 @@ playwright install chromium
 **Scraper tidak bisa login / listing kosong**
 - Cookies kamu mungkin expired — export ulang cookies dari browser
 - Coba tanpa `--headless` dulu untuk lihat apa yang terjadi di browser
+- Periksa apakah akun Facebook Anda terhalang oleh pop-up perihal update "Akun Meta". Jika ya, login manual di browser biasa dan selesaikan instruksi pop-up tersebut agar hilang selamanya.
 
 ---
 
-## ⚠️ Disclaimer
+## Disclaimer
 
-Project ini untuk keperluan edukasi dan riset pribadi. Penggunaan scraper harus mematuhi [Facebook Terms of Service](https://www.facebook.com/terms.php). Jangan gunakan untuk spam atau tujuan komersial tanpa izin.
+Project ini untuk keperluan edukasi dan riset pribadi. Penggunaan scraper harus mematuhi Facebook Terms of Service. Jangan gunakan untuk spam atau tujuan komersial tanpa izin.

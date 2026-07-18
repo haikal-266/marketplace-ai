@@ -18,6 +18,7 @@ export interface ScrapeOptions {
   details?: boolean;    // Ambil detail page (default: true)
   minPrice?: number;    // Filter harga minimal
   maxPrice?: number;    // Filter harga maksimal
+  allowedLocations?: string[]; // Filter lokasi target dari UI
 }
 
 type ScrapeStatus = 'idle' | 'running' | 'done' | 'failed';
@@ -86,14 +87,26 @@ class ScraperService extends EventEmitter {
    */
   async stopScrape(): Promise<void> {
     if (this.childProcess) {
-      log.info('Menghentikan scraper process...');
-      this.childProcess.kill('SIGINT');
-      this.childProcess = null;
+      log.info('Menghentikan pencarian baru (mengirim perintah stop ke scraper)...');
+      try {
+        this.childProcess.stdin?.write("stop\n");
+      } catch (err) {
+        log.error('Gagal menulis ke stdin scraper, force killing...', err);
+        this.childProcess.kill();
+      }
+
+      // Fallback: Force kill after 20 seconds to prevent hanging
+      const cp = this.childProcess;
+      setTimeout(() => {
+        if (this.childProcess === cp && cp.exitCode === null) {
+          log.warn('Scraper tidak merespon perintah stop. Force killing...');
+          cp.kill();
+        }
+      }, 20000);
     }
     if (this.currentJob && this.currentJob.status === 'running') {
       this.currentJob.status = 'done';
     }
-    this.emit('done');
   }
 
   /**
@@ -156,6 +169,10 @@ class ScraperService extends EventEmitter {
 
     // Path ke cookie temp file
     args.push(`--cookies=${cookieTmpPath}`);
+
+    if (options.allowedLocations && options.allowedLocations.length > 0) {
+      args.push(`--allowedLocations=${options.allowedLocations.join(',')}`);
+    }
 
     return args;
   }

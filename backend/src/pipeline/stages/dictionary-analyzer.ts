@@ -100,12 +100,13 @@ export class DictionaryAnalyzerStage
       const escaped = this.escapeRegex(kw);
 
       // Word boundary: karakter sebelum/sesudah keyword harus BUKAN huruf atau ANGKA
-      // Ini mencegah match pada kode produk seperti "ath-anc700bt" atau "bt600"
-      // [^a-zA-Z0-9] = bukan huruf dan bukan digit → hanya spasi, tanda baca, atau awal/akhir string
+      // Ini mencegah match pada kode produk seperti "ath-anc700bt" or "bt600"
+      // [^a-zA-Z0-9] = bukan huruf dan bukan digit
       const pattern = new RegExp(
         `(?:^|[^a-zA-Z0-9])` +
         `(no|not|tidak|ga|gak|ngga|nggak|kagak|bukan|tanpa|without)?` +
-        `[\\s]*` +
+        `[\\s]*(?:terima|melayani|bisa|untuk)?[\\s]*` +
+        `(?:(?:bt|tt|barter|tuker|tukar tambah|trade in|trade-in)[\\s]*[\\/\\&,.-]+[\\s]*)?` +
         `(${escaped})` +
         `(?:[\\s]*(up|skip|ditolak|tolak|gak|tidak|no))?` +
         `(?:[^a-zA-Z0-9]|$)`,
@@ -134,7 +135,7 @@ export class DictionaryAnalyzerStage
   private isNegated(text: string, keyword: string): boolean {
     const escaped = this.escapeRegex(keyword);
     const pattern = new RegExp(
-      `(no|not|tidak|ga|gak|ngga|nggak|kagak|bukan|tanpa|without)\\s+${escaped}` +
+      `(no|not|tidak|ga|gak|ngga|nggak|kagak|bukan|tanpa|without)\\s+(?:terima|melayani|bisa|untuk)?\\s*${escaped}` +
       `|${escaped}\\s+(up|skip|ditolak|tolak)`,
       'gi'
     );
@@ -149,7 +150,7 @@ export class DictionaryAnalyzerStage
   private hasTukarBarter(text: string): boolean {
     // Match 'tukar' yang BUKAN diikuti 'tambah'
     // [^a-zA-Z0-9] memastikan 'tukar' tidak embedded dalam kata/kode lain
-    const pattern = /(?:^|[^a-zA-Z0-9])(no|not|tidak|ga|gak|ngga|nggak|kagak|bukan|tanpa|without)?[\s]*(tukar)(?![\s]*tambah)(?:[\s]*(up|skip|ditolak|tolak))?(?:[^a-zA-Z0-9]|$)/gi;
+    const pattern = /(?:^|[^a-zA-Z0-9])(no|not|tidak|ga|gak|ngga|nggak|kagak|bukan|tanpa|without)?[\s]*(?:terima|melayani|bisa|untuk)?[\s]*(tukar)(?![\s]*tambah)(?:[\s]*(up|skip|ditolak|tolak))?(?:[^a-zA-Z0-9]|$)/gi;
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(text)) !== null) {
       const prefixNeg = match[1];
@@ -177,7 +178,8 @@ export class DictionaryAnalyzerStage
         const pattern = new RegExp(
           `(?:^|[^a-zA-Z0-9])` +
           `(no|not|tidak|ga|gak|ngga|nggak|kagak|bukan|tanpa|without)?` +
-          `[\\s]*` +
+          `[\\s]*(?:terima|melayani|bisa|untuk)?[\\s]*` +
+          `(?:(?:bt|tt|barter|tuker|tukar tambah|trade in|trade-in)[\\s]*[\\/\\&,.-]+[\\s]*)?` +
           `(${escaped})` +
           `(?:[\\s]*(up|skip|ditolak|tolak|gak|tidak|no))?` +
           `(?:[^a-zA-Z0-9]|$)`,

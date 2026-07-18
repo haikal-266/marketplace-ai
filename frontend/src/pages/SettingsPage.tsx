@@ -51,6 +51,63 @@ export default function SettingsPage() {
   // Export state
   const [exporting, setExporting] = useState(false);
 
+  // AI Config states
+  const [aiProvider, setAiProvider] = useState('gemini');
+  const [aiApiKey, setAiApiKey] = useState('');
+  const [aiBaseUrl, setAiBaseUrl] = useState('https://generativelanguage.googleapis.com');
+  const [aiModelName, setAiModelName] = useState('gemini-1.5-flash');
+
+  // Load saved AI config on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('marketplace_ai_config');
+      if (saved) {
+        const config = JSON.parse(saved);
+        setAiProvider(config.provider || 'gemini');
+        setAiApiKey(config.apiKey || '');
+        setAiBaseUrl(config.baseUrl || 'https://generativelanguage.googleapis.com');
+        setAiModelName(config.modelName || 'gemini-1.5-flash');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const handleProviderChange = (provider: string) => {
+    setAiProvider(provider);
+    if (provider === 'gemini') {
+      setAiBaseUrl('https://generativelanguage.googleapis.com');
+      setAiModelName('gemini-1.5-flash');
+    } else if (provider === 'openai') {
+      setAiBaseUrl('https://api.openai.com/v1');
+      setAiModelName('gpt-4o-mini');
+    } else if (provider === 'groq') {
+      setAiBaseUrl('https://api.groq.com/openai/v1');
+      setAiModelName('llama-3.3-70b-versatile');
+    } else if (provider === 'openrouter') {
+      setAiBaseUrl('https://openrouter.ai/api/v1');
+      setAiModelName('deepseek/deepseek-chat');
+    } else if (provider === 'custom') {
+      setAiBaseUrl('http://localhost:11434/v1');
+      setAiModelName('llama3');
+    }
+  };
+
+  const handleSaveAiConfig = () => {
+    try {
+      const config = {
+        provider: aiProvider,
+        apiKey: aiApiKey,
+        baseUrl: aiBaseUrl,
+        modelName: aiModelName
+      };
+      localStorage.setItem('marketplace_ai_config', JSON.stringify(config));
+      alert('Konfigurasi AI berhasil disimpan!');
+    } catch (err) {
+      alert('Gagal menyimpan konfigurasi AI');
+    }
+  };
+
   // ── Auth ──
   const fetchAuthStatus = useCallback(async () => {
     try {
@@ -304,6 +361,80 @@ export default function SettingsPage() {
               <Download size={14} />
               <span>{exporting ? 'Mengekspor...' : 'Ekspor Database ke Excel'}</span>
             </button>
+          </div>
+        </section>
+
+        {/* Bento Card 2.5: AI Configuration */}
+        <section className="bg-bg-card border border-border-subtle rounded-xl p-5 flex flex-col gap-4 transition-colors duration-120 hover:border-border-normal col-span-1 md:col-span-2">
+          <div className="flex items-center gap-2 pb-2">
+            <Sparkles size={16} className="text-info opacity-80" />
+            <h2 className="text-[13px] font-bold uppercase tracking-wider text-text-primary m-0">Konfigurasi Penyedia AI Laporan</h2>
+          </div>
+          
+          <div className="flex flex-col gap-4">
+            <p className="text-[13px] text-text-secondary m-0 leading-relaxed">
+              Pilih penyedia AI Anda sendiri untuk membuat ringkasan makro dan rekomendasi laporan. Masukkan URL Endpoint & Model untuk menggunakan provider selain Google AI Studio.
+            </p>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-text-secondary">Penyedia AI (Provider)</label>
+                <select
+                  value={aiProvider}
+                  onChange={(e) => handleProviderChange(e.target.value)}
+                  className="w-full h-[38px] bg-bg-primary border border-border-subtle rounded-lg text-text-primary font-sans text-xs px-3 outline-none transition-colors duration-120 focus:border-accent-primary"
+                >
+                  <option value="gemini">Google AI Studio (Gemini)</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="groq">Groq</option>
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="custom">Custom (OpenAI-Compatible)</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-text-secondary">API Key</label>
+                <input
+                  type="password"
+                  placeholder={aiProvider === 'gemini' ? "Kosongkan untuk menggunakan .env backend" : "Masukkan API Key Anda"}
+                  value={aiApiKey}
+                  onChange={(e) => setAiApiKey(e.target.value)}
+                  className="w-full h-[38px] bg-bg-primary border border-border-subtle rounded-lg text-text-primary font-sans text-xs px-3 outline-none transition-colors duration-120 focus:border-accent-primary"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-text-secondary">Base URL (Endpoint)</label>
+                <input
+                  type="text"
+                  placeholder="https://..."
+                  value={aiBaseUrl}
+                  onChange={(e) => setAiBaseUrl(e.target.value)}
+                  disabled={aiProvider !== 'custom' && aiProvider !== 'openrouter' && aiProvider !== 'groq' && aiProvider !== 'openai'}
+                  className="w-full h-[38px] bg-bg-primary border border-border-subtle rounded-lg text-text-primary font-sans text-xs px-3 outline-none transition-colors duration-120 focus:border-accent-primary disabled:opacity-50 disabled:bg-bg-secondary"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-text-secondary">Model Name</label>
+                <input
+                  type="text"
+                  placeholder="Nama model"
+                  value={aiModelName}
+                  onChange={(e) => setAiModelName(e.target.value)}
+                  className="w-full h-[38px] bg-bg-primary border border-border-subtle rounded-lg text-text-primary font-sans text-xs px-3 outline-none transition-colors duration-120 focus:border-accent-primary"
+                />
+              </div>
+            </div>
+            
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={handleSaveAiConfig}
+                className="h-[38px] rounded-lg text-[13px] font-semibold cursor-pointer flex items-center justify-center gap-2 transition-all duration-120 bg-accent-primary text-text-primary hover:bg-accent-secondary px-6"
+              >
+                Simpan Konfigurasi AI
+              </button>
+            </div>
           </div>
         </section>
 

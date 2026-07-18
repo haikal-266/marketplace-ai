@@ -73,4 +73,4 @@ app.listen(config.port, () => {
   });
 });
 
-export default app;
+export default app; // Reload triggered for GEMINI_API_KEY

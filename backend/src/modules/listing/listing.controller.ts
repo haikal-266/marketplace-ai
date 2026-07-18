@@ -161,4 +161,170 @@ router.delete(
   })
 );
 
+/** POST /api/listings/analyze-report — Analisis data listing menggunakan AI (Gemini / OpenAI / Groq / OpenRouter) */
+const AnalyzeReportSchema = z.object({
+  query: z.string(),
+  items: z.array(z.any()),
+  aiConfig: z.object({
+    provider: z.string().optional(),
+    apiKey: z.string().optional(),
+    baseUrl: z.string().optional(),
+    modelName: z.string().optional(),
+  }).optional(),
+});
+
+router.post(
+  '/analyze-report',
+  asyncHandler(async (req, res) => {
+    const parsed = AnalyzeReportSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new ValidationError(parsed.error.errors.map((e) => e.message).join(', '));
+    }
+
+    const { query, items, aiConfig } = parsed.data;
+
+    // Resolve configuration values with local fallbacks to .env
+    const provider = aiConfig?.provider || 'gemini';
+    const apiKey = aiConfig?.apiKey || process.env.GEMINI_API_KEY;
+    const modelName = aiConfig?.modelName || 'gemini-1.5-flash';
+    const baseUrl = aiConfig?.baseUrl || 'https://generativelanguage.googleapis.com';
+
+    if (!apiKey) {
+      return res.json({
+        success: true,
+        isAi: false,
+        data: null,
+      });
+    }
+
+    const prompt = `
+Anda adalah AI analis marketplace. Tugas Anda adalah menganalisis daftar barang berikut yang dicari dengan query "${query}" dan memberikan spesifikasi ringkas produk tersebut, analisis makro pasar, serta rekomendasi tindakan untuk setiap barang.
+
+PENTING:
+1. Jangan gunakan tanda kutip ganda (") di dalam konten teks (seperti nilai 'recommendation', 'macroSummary', atau item dalam 'briefSpecs'). Jika Anda ingin mengutip sesuatu, gunakan tanda kutip tunggal (') saja.
+2. Pastikan tidak ada karakter line break atau control character (\n) di dalam nilai string JSON. Semua harus ditulis dalam satu baris untuk tiap properti string.
+3. Pastikan format JSON valid tanpa trailing comma (koma menggantung) di akhir elemen array atau objek.
+4. Jangan gunakan emoji sama sekali di dalam seluruh isi teks JSON (briefSpecs, macroSummary, dan recommendation). Tulis analisis dengan bahasa profesional yang bersih tanpa menggunakan emoji.
+5. Analisis deskripsi lengkap ('description') setiap barang dengan teliti untuk menggali spesifikasi teknis tambahan (seperti kapasitas RAM, memori internal, warna, dll.), kelengkapan unit (fullset, batangan, charger bawaan), status garansi, serta detail kerusakan/minus fisik maupun sistem. Sertakan informasi berharga dari deskripsi ini untuk membuat ringkasan pasar (macroSummary) yang lebih mendalam, spesifikasi produk (briefSpecs), dan rekomendasi tindakan yang spesifik untuk masing-masing barang.
+
+Daftar barang:
+${JSON.stringify(
+  items.map((l: any) => ({
+    id: l.id,
+    title: l.title,
+    price: l.actualPriceAmount || l.listedPrice,
+    location: l.location,
+    description: l.description || '',
+    isBarter: l.isBarter,
+    isTradeIn: l.isTradeIn,
+    isNett: l.isNett,
+    isPriceFake: l.isPriceFake,
+  }))
+)}
+
+Harap berikan respons dalam format JSON berikut:
+{
+  "briefSpecs": [
+    "Spesifikasi 1 (contoh: 'Layar: 6.67 inci AMOLED, 120Hz')",
+    "Spesifikasi 2 (contoh: 'Chipset: Snapdragon 7+ Gen 2')",
+    "Spesifikasi 3 (contoh: 'Baterai: 5000mAh, 67W fast charge')"
+  ],
+  "macroSummary": "Satu paragraf analisis pasar mendalam (3-4 kalimat) yang menyimpulkan kondisi pasar berdasarkan harga rata-rata, persentase kelengkapan unit, serta tren kondisi fisik/minus barang yang dilaporkan di deskripsi. Contoh: 'Berdasarkan analisis deskripsi, mayoritas unit berada dalam kondisi RAM 8GB/256GB dan fullset original. Namun, terdapat sekitar 20% unit yang melaporkan minus berupa backdoor retak atau baterai drop, sehingga calon pembeli disarankan menawar harga lebih rendah untuk tipe tersebut.'",
+  "recommendations": [
+    {
+      "id": "ID barang (harus sama persis dengan id barang di daftar)",
+      "recommendation": "1 kalimat rekomendasi actionable spesifik yang merujuk langsung ke detail kondisi atau minus yang tertulis di deskripsi barang (contoh: 'Unit patut dipertimbangkan karena deskripsi melaporkan kondisi mulus terawat lengkap box', 'Wajib tawar 15% karena ada minus layar retak tipis di deskripsi', atau 'Hindari/konfirmasi harga asli karena terindikasi harga DP di deskripsi').",
+      "isRedFlag": true atau false (true jika terindikasi harga palsu, ada minus parah di deskripsi, atau mencurigakan)
+    }
+  ]
+}
+`;
+
+    try {
+      let text = '';
+
+      if (provider === 'gemini' || baseUrl.includes('generativelanguage.googleapis.com')) {
+        // --- Google Gemini API (AI Studio) ---
+        const url = `${baseUrl.replace(/\/$/, '')}/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+        const response = await globalThis.fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: 'application/json' },
+          }),
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          return res.json({
+            success: true,
+            isAi: false,
+            data: null,
+            error: `Gemini API error: ${response.status} - ${errText}`,
+          });
+        }
+
+        const resJson: any = await response.json();
+        text = resJson.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      } else {
+        // --- OpenAI-Compatible APIs (OpenAI, Groq, OpenRouter, Custom) ---
+        const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
+        const response = await globalThis.fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: modelName,
+            messages: [{ role: 'user', content: prompt }],
+            response_format: { type: 'json_object' },
+          }),
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          return res.json({
+            success: true,
+            isAi: false,
+            data: null,
+            error: `API error (${provider}): ${response.status} - ${errText}`,
+          });
+        }
+
+        const resJson: any = await response.json();
+        text = resJson.choices?.[0]?.message?.content || '';
+      }
+
+      if (!text) {
+        throw new Error('Invalid response structure from AI Provider');
+      }
+
+      let cleanText = text.trim();
+      if (cleanText.startsWith('```json')) {
+        cleanText = cleanText.substring(7);
+      }
+      if (cleanText.endsWith('```')) {
+        cleanText = cleanText.substring(0, cleanText.length - 3);
+      }
+      cleanText = cleanText.trim();
+
+      const parsedData = JSON.parse(cleanText);
+      res.json({
+        success: true,
+        isAi: true,
+        data: parsedData,
+      });
+    } catch (error) {
+      res.json({
+        success: true,
+        isAi: false,
+        data: null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  })
+);
+
 export default router;

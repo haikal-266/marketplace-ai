@@ -19,9 +19,10 @@ import {
   RefreshCw,
   AlertTriangle
 } from 'lucide-react';
-import { searchApi, scraperApi } from '../services/api';
+import { searchApi, scraperApi, listingsApi } from '../services/api';
 import type { SearchResult, SearchOptions, Listing } from '../types';
 import ListingCard, { hasMinus, overrideCurrencyToRupiah } from '../components/ListingCard/ListingCard';
+import ReportModal from '../components/ReportModal/ReportModal';
 
 const SORT_OPTIONS = [
   { value: 'relevance', label: 'Relevansi' },
@@ -80,6 +81,20 @@ function getWhatsAppLink(title: string | null, description: string | null): stri
   return null;
 }
 
+const loadHtml2Pdf = (): Promise<any> => {
+  return new Promise((resolve, reject) => {
+    if ((window as any).html2pdf) {
+      resolve((window as any).html2pdf);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+    script.onload = () => resolve((window as any).html2pdf);
+    script.onerror = (e) => reject(e);
+    document.head.appendChild(script);
+  });
+};
+
 /** Key untuk menyimpan session terakhir di localStorage */
 const SESSION_KEY = 'marketplace_last_session';
 
@@ -132,8 +147,20 @@ export default function SearchPage() {
     type: 'info' | 'success' | 'warning' | 'error';
     title?: string;
   } | null>(null);
+  const [showReportConfirm, setShowReportConfirm] = useState(false);
+  const [showDescriptionWarning, setShowDescriptionWarning] = useState(false);
+  const [generatingReport, setGeneratingReport] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const restoredRef = useRef(false);
+  // Ref mirrors isMonitoring so filter effects can read current value without it as a dependency
+  const isMonitoringRef = useRef(false);
+  useEffect(() => { isMonitoringRef.current = isMonitoring; }, [isMonitoring]);
+  // Ref for latest results so stopMonitoring can access current live state
+  const resultsRef = useRef<SearchResult | null>(null);
+  useEffect(() => { resultsRef.current = results; }, [results]);
+  // Ref for query so callbacks can read latest without stale closure
+  const queryRef = useRef(query);
+  useEffect(() => { queryRef.current = query; }, [query]);
 
   // Filters — diinisialisasi dari saved session jika ada
   const [sortBy, setSortBy] = useState<SearchOptions['sortBy']>(_saved?.sortBy ?? 'relevance');
@@ -190,16 +217,19 @@ export default function SearchPage() {
       });
   }, []);
 
-  const stopMonitoring = useCallback(async () => {
+  const stopMonitoring = useCallback(() => {
+    // Immediately update UI state — do not await stop API (would block UI for seconds)
     setIsMonitoring(false);
     setScrapeStatus('Monitoring dihentikan.');
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
-    try {
-      await scraperApi.stop();
-    } catch (e) { }
+    // Fire-and-forget: signal backend to stop listing discovery
+    scraperApi.stop().catch(() => {});
+    // NOTE: We intentionally do NOT re-query the DB here.
+    // Live results in memory are preserved as-is after stop.
+    // The filter useEffect will sync with DB next time the user changes a filter.
   }, []);
 
   const startMonitoring = useCallback(async () => {
@@ -248,7 +278,8 @@ export default function SearchPage() {
         details: true,
         city: locations[0] || '', // Gunakan kota pertama untuk scraping FB
         minPrice: minPrice ? Number.parseInt(minPrice, 10) : undefined,
-        maxPrice: maxPrice ? Number.parseInt(maxPrice, 10) : undefined
+        maxPrice: maxPrice ? Number.parseInt(maxPrice, 10) : undefined,
+        allowedLocations: locations.length > 0 ? locations : undefined
       });
     } catch (err) {
       setScrapeStatus(`Gagal memulai scraper: ${err instanceof Error ? err.message : String(err)}`);
@@ -282,7 +313,8 @@ export default function SearchPage() {
           message: 'Akun Facebook yang terhubung tidak memiliki akses ke Marketplace (Restricted / Blokir). Silakan hubungkan ulang dengan akun lain.',
           type: 'error'
         });
-        stopMonitoring();
+        setIsMonitoring(false);
+        sse.close();
       }
     });
 
@@ -290,6 +322,29 @@ export default function SearchPage() {
       const newListing = JSON.parse(e.data) as any;
 
       let pass = true;
+
+      // Filter out listings that are completely unrelated to the query (e.g. from Facebook feed redirects or recommended listings)
+      const activeQ = queryRef.current.trim().toLowerCase();
+      if (activeQ) {
+        const qTokens = activeQ.split(/\s+/).filter(t => t.length >= 2);
+        if (qTokens.length > 0) {
+          const titleLower = (newListing.title || '').toLowerCase();
+          const descLower = (newListing.description || '').toLowerCase();
+          const match = qTokens.some(t => {
+            if (titleLower.includes(t) || descLower.includes(t)) return true;
+            if (t.length > 4) {
+              let commonChars = 0;
+              for (let i = 0; i < t.length; i++) {
+                if (titleLower.includes(t[i])) commonChars++;
+              }
+              if (commonChars >= t.length - 2) return true;
+            }
+            return false;
+          });
+          if (!match) pass = false;
+        }
+      }
+
       const actPrice = newListing.actualPriceAmount;
       if (minPrice && (actPrice === null || actPrice === undefined || actPrice < Number.parseInt(minPrice, 10))) pass = false;
       if (maxPrice && (actPrice === null || actPrice === undefined || actPrice > Number.parseInt(maxPrice, 10))) pass = false;
@@ -342,8 +397,10 @@ export default function SearchPage() {
     });
 
     sse.onerror = () => {
-      setScrapeStatus('Koneksi live terputus.');
-      setIsMonitoring(false);
+      if (isMonitoringRef.current) {
+        setScrapeStatus('Koneksi live terputus.');
+        setIsMonitoring(false);
+      }
       sse.close();
     };
 
@@ -432,6 +489,602 @@ export default function SearchPage() {
     });
   }, [results, minPrice, maxPrice, locations, isBarter, isOpenNego, isNoMinus]);
 
+  // Automatically query database on filter change (only when NOT actively scraping)
+  // IMPORTANT: isMonitoring is NOT in the dependency array so this does NOT fire when stop is clicked.
+  // isMonitoringRef is used to read the current value without triggering the effect.
+  useEffect(() => {
+    if (isMonitoringRef.current) return;
+    const activeQuery = results?.query || '';
+    if (!activeQuery) return;
+
+    const delayDebounce = setTimeout(() => {
+      if (isMonitoringRef.current) return; // double-check after debounce
+      const opts: SearchOptions = {
+        q: activeQuery,
+        sortBy,
+        page: 1,
+        limit: 100,
+        location: locations.join(',') || undefined,
+        minPrice: minPrice ? Number.parseInt(minPrice, 10) : undefined,
+        maxPrice: maxPrice ? Number.parseInt(maxPrice, 10) : undefined,
+        isBarter: isBarter,
+      };
+
+      setLoading(true);
+      searchApi.search(opts)
+        .then((data) => {
+          // Merge: preserve any descriptions/data already in live results that DB doesn't have yet
+          setResults((prev) => {
+            if (!prev) return data;
+            const dbById = new Map(data.items.map(i => [i.id, i]));
+            const merged = prev.items.map(liveItem => {
+              const dbItem = dbById.get(liveItem.id);
+              if (!dbItem) return liveItem; // not in DB yet, keep live
+              // Prefer live description if DB still empty
+              return {
+                ...dbItem,
+                description: dbItem.description || liveItem.description,
+              };
+            });
+            // Add DB items that weren't in live state
+            const liveIds = new Set(prev.items.map(i => i.id));
+            data.items.forEach(dbItem => {
+              if (!liveIds.has(dbItem.id)) merged.push(dbItem);
+            });
+            return { ...data, items: merged, total: merged.length };
+          });
+        })
+        .catch((err) => {
+          console.error('Failed to query DB on filter change:', err);
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    }, 400);
+
+    return () => clearTimeout(delayDebounce);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortBy, minPrice, maxPrice, locations, isBarter, isOpenNego, isNoMinus, results?.query]);
+  // ^ isMonitoring intentionally excluded — use isMonitoringRef instead
+
+  const handlePriceChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    setter: (val: string) => void
+  ) => {
+    const input = e.target;
+    const selectionEnd = input.selectionEnd || 0;
+    const originalLength = input.value.length;
+    const rawVal = input.value.replace(/\D/g, '');
+
+    setter(rawVal);
+
+    requestAnimationFrame(() => {
+      const newFormatted = formatInputPrice(rawVal);
+      const lengthDifference = newFormatted.length - originalLength;
+      let newPosition = selectionEnd + lengthDifference;
+      newPosition = Math.max(0, Math.min(newFormatted.length, newPosition));
+      input.setSelectionRange(newPosition, newPosition);
+    });
+  };
+
+  useEffect(() => {
+    const handleReportTrigger = () => {
+      if (!results || filteredItems.length === 0) {
+        setCustomAlert({
+          title: 'Belum Ada Data',
+          message: 'Harap lakukan pencarian produk terlebih dahulu sebelum membuat laporan.',
+          type: 'warning'
+        });
+        return;
+      }
+      setShowReportConfirm(true);
+    };
+
+    window.addEventListener('generate-report-click', handleReportTrigger);
+    return () => window.removeEventListener('generate-report-click', handleReportTrigger);
+  }, [results, filteredItems]);
+
+  const handleConfirmReportClick = () => {
+    setShowReportConfirm(false);
+    const hasLoadingDesc = filteredItems.some(item => !item.description);
+    if (hasLoadingDesc) {
+      setShowDescriptionWarning(true);
+    } else {
+      handleGenerateReport();
+    }
+  };
+
+  const handleGenerateReport = async () => {
+    setShowReportConfirm(false);
+    setShowDescriptionWarning(false);
+    setGeneratingReport(true);
+
+    let aiData: { macroSummary: string; briefSpecs?: string[]; recommendations: { id: string; recommendation: string; isRedFlag: boolean }[] } | null = null;
+
+    let aiConfig = undefined;
+    try {
+      const savedConfig = localStorage.getItem('marketplace_ai_config');
+      if (savedConfig) {
+        aiConfig = JSON.parse(savedConfig);
+      }
+    } catch (e) {
+      console.error('Failed to load AI config from local storage', e);
+    }
+
+    try {
+      // Call backend API to analyze report using AI Config
+      const response = await listingsApi.analyzeReport(query, filteredItems, aiConfig);
+      if (response.isAi && response.data) {
+        aiData = response.data;
+      }
+    } catch (err) {
+      console.error('Failed to get AI report analysis, falling back to local analyzer', err);
+    }
+
+    try {
+      const html2pdf = await loadHtml2Pdf();
+
+      const totalItems = filteredItems.length;
+      const itemsWithPrice = filteredItems.filter(item => item.actualPriceAmount !== null && item.actualPriceAmount !== undefined);
+      const averagePrice = itemsWithPrice.length > 0
+        ? Math.round(itemsWithPrice.reduce((sum, item) => sum + item.actualPriceAmount!, 0) / itemsWithPrice.length)
+        : 0;
+
+      const needsCheckCount = filteredItems.filter(item =>
+        hasMinus(item.title || '', item.description || '') ||
+        item.isPriceFake ||
+        (item.confidenceScore < 0.7)
+      ).length;
+
+
+      let aiSummary = '';
+      if (aiData?.macroSummary) {
+        aiSummary = aiData.macroSummary;
+      } else {
+        const isHighFake = filteredItems.filter(item => item.isPriceFake).length > (totalItems * 0.3);
+        const hasManyMinuses = needsCheckCount > (totalItems * 0.4);
+
+        aiSummary = `Mayoritas listing untuk "${query}" terpantau berada dalam kondisi wajar dengan rata-rata harga pasar Rp ${averagePrice.toLocaleString('id-ID')}. `;
+        if (isHighFake) {
+          aiSummary += `Ditemukan banyak listing dengan indikasi harga palsu atau DP (down payment). Calon pembeli disarankan berhati-hati dan selalu mengonfirmasi harga asli sebelum transaksi. `;
+        } else {
+          aiSummary += `Skor deteksi harga menunjukkan kestabilan harga yang cukup konsisten di pasar. `;
+        }
+
+        if (hasManyMinuses) {
+          aiSummary += `Sebagian besar barang (${needsCheckCount} dari ${totalItems} item) memiliki catatan minus atau kerusakan tertentu. Pastikan untuk melakukan cek fisik secara teliti.`;
+        } else {
+          aiSummary += `Sebagian besar listing berada dalam kondisi prima tanpa minus berarti, menjadikannya pilihan yang aman untuk dibeli.`;
+        }
+      }
+
+      let briefSpecsHtml = '';
+      if (aiData?.briefSpecs && aiData.briefSpecs.length > 0) {
+        const specItems = aiData.briefSpecs.map(spec => `<li>${spec}</li>`).join('');
+        briefSpecsHtml = `
+          <section class="brief-specs-container">
+            <div class="specs-title">Spesifikasi Singkat Produk</div>
+            <ul class="specs-list">
+              ${specItems}
+            </ul>
+          </section>
+        `;
+      }
+
+      const formatRp = (priceStr: string | null | undefined) => {
+        if (!priceStr) return '-';
+        return overrideCurrencyToRupiah(priceStr);
+      };
+
+      const isAiActive = !!aiData;
+      const recLabel = isAiActive ? 'Rekomendasi AI' : 'Rekomendasi';
+
+      const itemsHtml = filteredItems.map((item, index) => {
+        const scaledPrice = item.actualPriceAmount !== null && item.actualPriceAmount !== undefined
+          ? (item.actualPriceAmount >= 100 && item.actualPriceAmount <= 9999
+            ? item.actualPriceAmount * 1000
+            : item.actualPriceAmount)
+          : null;
+
+        const hasMin = hasMinus(item.title || '', item.description || '');
+        const isFake = item.isPriceFake;
+        const isBtr = item.isBarter || item.isTradeIn;
+
+        const titleText = item.title || '';
+        const descText = item.description || '';
+        const combinedText = (titleText + ' ' + descText).toLowerCase();
+        
+        // Red flag jika unit mati / rusak total
+        const containsMatotOrMati = /\b(matot|mati)\b/i.test(combinedText) || combinedText.includes('mati total');
+
+        let cardColorClass = '';
+        if (containsMatotOrMati) {
+          cardColorClass = 'red-flag';
+        } else if (hasMin) {
+          cardColorClass = 'minus-flag';
+        }
+
+        let recommendation = '';
+
+        const aiRec = aiData?.recommendations?.find(r => r.id === item.id);
+        if (aiRec) {
+          recommendation = aiRec.recommendation;
+        } else {
+          if (containsMatotOrMati) {
+            recommendation = 'Unit terdeteksi dalam kondisi rusak mati (MATOT). Hindari pembelian kecuali untuk keperluan kanibalan suku cadang.';
+          } else if (isFake) {
+            recommendation = 'Harga tertera terdeteksi tidak wajar (DP/Cicilan). Selalu negosiasikan harga riil sebelum melakukan transaksi tatap muka.';
+          } else if (hasMin) {
+            recommendation = 'Terdeteksi adanya minus atau kekurangan pada unit. Lakukan inspeksi fisik langsung dan ajukan penawaran harga 15% lebih rendah.';
+          } else if (isBtr) {
+            recommendation = 'Transaksi difokuskan untuk Tukar Tambah atau Barter. Siapkan unit Anda yang setara untuk negosiasi.';
+          } else if (item.confidenceScore > 0.85) {
+            recommendation = 'Listing dengan tingkat kepercayaan tinggi. Unit dilaporkan mulus dan terawat. Sangat layak untuk diprioritaskan.';
+          } else {
+            recommendation = 'Kondisi unit terpantau standar. Lakukan verifikasi fungsionalitas dan kelengkapan unit saat COD.';
+          }
+        }
+
+        const badgesHtml = [
+          hasMin ? `<span class="badge badge-minus">Minus</span>` : '',
+          isFake ? `<span class="badge badge-fake">Bukan Harga Real</span>` : '',
+          item.isBarter ? `<span class="badge badge-barter">Barter</span>` : '',
+          item.isTradeIn ? `<span class="badge badge-barter">TT</span>` : '',
+          item.isNett ? `<span class="badge badge-nett">Nett</span>` : ''
+        ].filter(Boolean).join(' ');
+
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=${encodeURIComponent(item.url)}`;
+
+        return `
+          <div class="product-item ${cardColorClass}">
+            <div class="product-header">
+              <div class="product-title-price">
+                <span class="product-title">${index + 1}. ${item.title || '(Tanpa judul)'}</span>
+                <span class="product-price">${scaledPrice !== null ? `Rp ${scaledPrice.toLocaleString('id-ID')}` : formatRp(item.listedPrice)}</span>
+              </div>
+              <div class="badges-row">
+                ${badgesHtml || '<span class="badge badge-ok">Normal</span>'}
+              </div>
+            </div>
+            <div class="product-body">
+              <div class="product-info">
+                <div class="metadata">
+                  <span>Penjual: ${item.seller || 'Umum'}</span> &bull; 
+                  <span>Lokasi: ${item.location || 'Tidak terdeteksi'}</span> &bull; 
+                  <span>Waktu: ${item.postedAt || 'Tidak terdeteksi'}</span>
+                </div>
+                <div class="ai-recommendation">
+                  <strong>${recLabel}:</strong> ${recommendation}
+                </div>
+                <div class="product-url-container">
+                  <span class="url-label">Link Produk:</span>
+                  <a href="${item.url}" class="product-url" target="_blank">${item.url}</a>
+                </div>
+              </div>
+              <div class="product-qr">
+                <img src="${qrUrl}" alt="QR Link" />
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      const locationsStr = locations.length > 0 ? locations.join(', ') : 'Semua Lokasi';
+
+      const formatIndonesianDate = (date: Date): string => {
+        const months = [
+          'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+          'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+        ];
+        const day = date.getDate();
+        const month = months[date.getMonth()];
+        const year = date.getFullYear();
+        return `${day} ${month} ${year}`;
+      };
+
+      const dateStr = formatIndonesianDate(new Date());
+      const currentDateText = new Date().toLocaleDateString('id-ID', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+
+      const element = document.createElement('div');
+      element.innerHTML = `
+        <style>
+          .report-wrapper, .report-wrapper * {
+            box-sizing: border-box;
+          }
+          .report-wrapper {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #ffffff;
+            color: #1e293b;
+            line-height: 1.6;
+            width: 100%;
+            padding: 24px;
+          }
+          
+          header {
+            border-bottom: 2px solid #cbd5e1;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+          }
+          
+          .header-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 24px;
+            font-weight: 800;
+            color: #0f172a;
+            margin: 0 0 8px 0;
+          }
+          
+          .header-meta {
+            font-size: 12px;
+            color: #475569;
+            font-weight: 500;
+          }
+          
+          .brief-specs-container {
+            background-color: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+          
+          .specs-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 13px;
+            font-weight: 800;
+            color: #0f172a;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+          }
+          
+          .specs-list {
+            margin: 0;
+            padding-left: 18px;
+            display: grid;
+            grid-template-cols: 1fr 1fr;
+            gap: 6px 20px;
+          }
+          
+          .specs-list li {
+            font-size: 12px;
+            color: #334155;
+            font-weight: 500;
+          }
+          
+          .macro-summary {
+            background-color: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+          
+          .macro-summary-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 13px;
+            font-weight: 800;
+            color: #0f172a;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+          }
+          
+          .macro-summary-text {
+            font-size: 12px;
+            color: #334155;
+            margin: 0;
+            line-height: 1.6;
+          }
+          
+          .section-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            font-weight: 800;
+            color: #0f172a;
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+          }
+          
+          .product-item {
+            padding: 20px 0;
+            border-bottom: 1px solid #cbd5e1;
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+          
+          .product-item.red-flag {
+            border-left: 4px solid #0f172a;
+            padding-left: 16px;
+          }
+          
+          .product-item.minus-flag {
+            border-left: 4px solid #64748b;
+            padding-left: 16px;
+          }
+          
+          .product-header {
+            margin-bottom: 10px;
+          }
+          
+          .product-title-price {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 20px;
+          }
+          
+          .product-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #0f172a;
+            line-height: 1.4;
+          }
+          
+          .product-price {
+            font-size: 14px;
+            font-weight: 800;
+            color: #0f172a;
+            white-space: nowrap;
+          }
+          
+          .badges-row {
+            display: flex;
+            gap: 6px;
+            margin-top: 8px;
+          }
+          
+          .badge {
+            font-size: 9px;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            background-color: #f1f5f9;
+            color: #334155;
+            border: 1px solid #e2e8f0;
+          }
+          
+          .product-body {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 20px;
+          }
+          
+          .product-info {
+            flex-grow: 1;
+          }
+          
+          .metadata {
+            font-size: 10px;
+            color: #64748b;
+            margin-bottom: 10px;
+            font-weight: 500;
+          }
+          
+          .ai-recommendation {
+            font-size: 11px;
+            color: #334155;
+            background-color: #f8fafc;
+            padding: 8px 12px;
+            border-radius: 4px;
+            border-left: 3px solid #475569;
+            margin-top: 6px;
+            line-height: 1.5;
+          }
+          
+          .product-url-container {
+            margin-top: 8px;
+            font-size: 10px;
+            color: #64748b;
+          }
+          
+          .url-label {
+            font-weight: 700;
+            color: #334155;
+            margin-right: 4px;
+          }
+          
+          .product-url {
+            color: #1e40af;
+            text-decoration: underline;
+            word-break: break-all;
+          }
+          
+          .product-qr {
+            width: 60px;
+            height: 60px;
+            flex-shrink: 0;
+            border: 1px solid #cbd5e1;
+            padding: 2px;
+            background: #ffffff;
+          }
+          
+          .card-qr img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+          }
+        </style>
+        <div class="report-wrapper">
+          <header>
+            <h1 class="header-title">Laporan Analisis Produk: "${query}"</h1>
+            <div class="header-meta">
+              Dibuat pada: ${currentDateText} &bull; Lokasi: ${locationsStr} &bull; 
+              <strong>${totalItems} listing ditemukan</strong> &bull; 
+              <strong>Rata-rata harga: Rp ${averagePrice.toLocaleString('id-ID')}</strong>
+            </div>
+          </header>
+          
+          ${briefSpecsHtml}
+          
+          <section class="macro-summary">
+            <div class="macro-summary-title">Ringkasan Analisis Pasar</div>
+            <p class="macro-summary-text">${aiSummary}</p>
+          </section>
+          
+          <section>
+            <div class="section-title">Detail Listing Barang</div>
+            ${itemsHtml}
+          </section>
+        </div>
+      `;
+
+      const opt = {
+        margin: [15, 15, 15, 15],  // top, right, bottom, left in mm
+        filename: `laporan-marketplace-${query}-${dateStr}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['css', 'legacy'] }
+      };
+
+      // Create a hidden wrapper container that prevents rendering cutoff
+      const container = document.createElement('div');
+      container.style.position = 'fixed';
+      container.style.left = '-9999px'; // Position far off-screen
+      container.style.top = '0px';
+      container.style.width = '680px';  // Must match the target element width
+      container.style.height = 'auto';
+      container.style.overflow = 'visible';
+      container.style.zIndex = '-9999';
+
+      // Keep element as a normal block layout child with explicit width
+      element.style.position = 'relative';
+      element.style.width = '680px';
+      element.style.background = '#ffffff';
+
+      container.appendChild(element);
+      document.body.appendChild(container);
+
+      await html2pdf().set(opt).from(element).save();
+
+      document.body.removeChild(container);
+    } catch (err) {
+      console.error('Error generating PDF:', err);
+      setCustomAlert({
+        title: 'Error Pembuatan PDF',
+        message: 'Gagal membuat file PDF. Silakan coba kembali.',
+        type: 'error'
+      });
+    } finally {
+      setGeneratingReport(false);
+    }
+  };
+
   const hasActiveFilters = minPrice || maxPrice || locations.length > 0 || isBarter !== undefined || isOpenNego !== undefined || isNoMinus !== undefined || sortBy !== 'relevance';
 
   const handleResetFilters = () => {
@@ -491,7 +1144,7 @@ export default function SearchPage() {
             type="text"
             placeholder="0"
             value={formatInputPrice(minPrice)}
-            onChange={(e) => setMinPrice(e.target.value.replace(/\D/g, ''))}
+            onChange={(e) => handlePriceChange(e, setMinPrice)}
           />
         </div>
       </div>
@@ -506,7 +1159,7 @@ export default function SearchPage() {
             type="text"
             placeholder="0"
             value={formatInputPrice(maxPrice)}
-            onChange={(e) => setMaxPrice(e.target.value.replace(/\D/g, ''))}
+            onChange={(e) => handlePriceChange(e, setMaxPrice)}
           />
         </div>
       </div>
@@ -640,7 +1293,7 @@ export default function SearchPage() {
             {isMonitoring ? (
               <>
                 <Square size={14} fill="currentColor" />
-                <span>Stop Monitoring</span>
+                <span>Stop Search</span>
               </>
             ) : (
               <>
@@ -678,14 +1331,17 @@ export default function SearchPage() {
         <div className="col-span-1 row-start-2 md:col-span-1 flex flex-col gap-3 h-full overflow-hidden">
           {/* Informative Stats & Active Filter Chips Bar */}
           {results && (
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-bg-card/40 border border-border-subtle/80 rounded-xl p-3">
-              <div className="flex flex-col">
-                <span className="text-base font-bold text-text-primary">{results ? filteredItems.length : 0}</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-text-secondary">Listing Ditemukan</span>
+            <div className="flex items-center gap-3 bg-bg-card/40 border border-border-subtle/80 rounded-xl p-3 min-w-0">
+              <div className="flex items-center gap-1.5 shrink-0 text-[11px] font-bold uppercase tracking-wider text-text-secondary whitespace-nowrap">
+                <span className="text-sm font-extrabold text-text-primary">{results ? filteredItems.length : 0}</span>
+                <span>Listing ditemukan</span>
               </div>
 
+              {/* Vertical Divider */}
+              <div className="w-[1px] h-4 bg-border-normal shrink-0"></div>
+
               {/* Render Active Filter Chips */}
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex-grow flex flex-nowrap gap-1.5 overflow-x-auto whitespace-nowrap py-0.5 min-w-0 justify-start scrollbar-none">
                 {results && results.query && (
                   <div className="inline-flex items-center bg-bg-tertiary border border-border-subtle/60 rounded-full px-2.5 py-1 text-[10px] font-semibold text-text-secondary" title="Pencarian Utama">
                     <span>Query: "{results.query}"</span>
@@ -876,6 +1532,7 @@ export default function SearchPage() {
                       <ListingCard
                         listing={listing}
                         searchQuery={query}
+                        isMonitoring={isMonitoring}
                         onClick={() => setSelectedListing(listing)}
                       />
                     </div>
@@ -1063,7 +1720,7 @@ export default function SearchPage() {
                     <div className="flex flex-col gap-2">
                       <h4 className="text-xs font-bold uppercase tracking-wider text-text-secondary">Deskripsi Lengkap</h4>
                       <p className="text-xs text-text-secondary leading-relaxed bg-bg-primary/20 p-3 rounded-lg border border-border-subtle/40 whitespace-pre-wrap">
-                        {selectedListing.description || '(Tidak ada deskripsi dari penjual)'}
+                        {selectedListing.description || '(Deskripsi gagal di load oleh sistem)'}
                       </p>
                     </div>
 
@@ -1125,6 +1782,18 @@ export default function SearchPage() {
               </div>
             </div>
           )}
+
+          {/* ── Report Modals (Confirmation, Warning, Loading Overlay) ── */}
+          <ReportModal
+            showConfirm={showReportConfirm}
+            showWarning={showDescriptionWarning}
+            generating={generatingReport}
+            itemCount={filteredItems.length}
+            onConfirmClose={() => setShowReportConfirm(false)}
+            onWarningClose={() => setShowDescriptionWarning(false)}
+            onConfirmSubmit={handleConfirmReportClick}
+            onWarningSubmit={handleGenerateReport}
+          />
         </div>
       </div>
     </div>

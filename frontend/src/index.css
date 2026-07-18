@@ -129,3 +129,12 @@ mark {
 .animate-slide-in {
   animation: slideIn 200ms ease forwards;
 }
+
+/* Hide scrollbar helper */
+.scrollbar-none::-webkit-scrollbar {
+  display: none !important;
+}
+.scrollbar-none {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
